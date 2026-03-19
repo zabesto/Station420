@@ -98,6 +98,8 @@ const STATION_LAYOUT := [
 @onready var combat_label: Label = $CanvasLayer/HUD/CombatLabel
 @onready var alert_label: Label = $CanvasLayer/HUD/AlertLabel
 @onready var pause_label: Label = $CanvasLayer/HUD/PauseLabel
+@onready var start_label: Label = $CanvasLayer/HUD/StartLabel
+@onready var hit_label: Label = $CanvasLayer/HUD/HitLabel
 
 var nearby_station: Area3D = null
 var dock_count := 0
@@ -113,6 +115,7 @@ var star_node: Node3D
 var planet_bodies := []
 var planet_nodes_by_name := {}
 var world_root: Node3D
+var enemy_target_marker: MeshInstance3D
 var enemy_nodes := []
 var player_projectiles := []
 var enemy_projectiles := []
@@ -125,14 +128,18 @@ var fire_cooldown := 0.0
 var shield_recharge_delay := 0.0
 var enemy_respawn_timer := 0.0
 var alert_timer := 0.0
+var hit_timer := 0.0
 var paused := false
 var game_over_state := false
+var start_screen_active := true
 
 
 func _ready() -> void:
 	player.call("set_world_limit", WORLD_LIMIT)
 	alert_label.text = ""
+	hit_label.text = ""
 	pause_label.visible = false
+	start_label.visible = true
 	create_starfield()
 	create_star()
 	create_planets()
@@ -146,20 +153,22 @@ func _ready() -> void:
 	if station_order.size() > 0:
 		player.global_position = station_order[0].global_position + Vector3(0, 0, 30)
 
-	title_label.text = "Wireframe System"
+	paused = true
+	title_label.text = "Station420"
 	update_combat_label()
-	update_status("WASD move, R/F rise and descend.\nHold Shift to boost through the shipping lanes.")
+	update_status("Press Enter to launch.\nUse Space to fire and Esc to pause once you are underway.")
 
 
 func _process(delta: float) -> void:
+	update_alert(delta)
+	update_hit_feedback(delta)
 	if paused:
-		update_alert(delta)
 		return
 
 	update_camera(delta)
 	update_objective_visuals(delta)
+	update_enemy_target_marker()
 	update_scanner()
-	update_alert(delta)
 	update_combat_label()
 
 
@@ -181,6 +190,10 @@ func _physics_process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		toggle_pause()
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and start_screen_active:
+		start_run()
 		return
 
 	if paused:
@@ -411,6 +424,13 @@ func create_objective_visuals() -> void:
 	objective_marker.material_override = make_line_material(Color(0.45, 1.0, 0.85))
 	add_child(objective_marker)
 
+	enemy_target_marker = MeshInstance3D.new()
+	enemy_target_marker.name = "EnemyTargetMarker"
+	enemy_target_marker.mesh = build_enemy_target_marker_mesh(14.0)
+	enemy_target_marker.material_override = make_line_material(Color(1.0, 0.52, 0.42))
+	enemy_target_marker.visible = false
+	add_child(enemy_target_marker)
+
 
 func simulate_planets(delta: float) -> void:
 	var accelerations := []
@@ -541,8 +561,28 @@ func set_alert(message: String, duration: float = 0.7) -> void:
 	alert_timer = duration
 
 
+func update_hit_feedback(delta: float) -> void:
+	if hit_timer > 0.0:
+		hit_timer = max(hit_timer - delta, 0.0)
+		if hit_timer == 0.0:
+			hit_label.text = ""
+
+
+func show_hit_feedback(message: String) -> void:
+	hit_label.text = message
+	hit_timer = 0.55
+
+
+func start_run() -> void:
+	start_screen_active = false
+	start_label.visible = false
+	paused = false
+	title_label.text = "Wireframe System"
+	update_status("Launch confirmed.\nRun cargo, avoid hazards, and clear hostile drones.")
+
+
 func toggle_pause() -> void:
-	if game_over_state:
+	if game_over_state or start_screen_active:
 		return
 	paused = not paused
 	pause_label.visible = paused
@@ -558,12 +598,17 @@ func restart_game() -> void:
 
 
 func update_combat_label() -> void:
-	combat_label.text = "Hull %d\nShields %d\nContacts %d\nScore %d\nKills %d" % [
+	var target_info := "Target none"
+	var target := get_primary_enemy_target()
+	if target != null:
+		target_info = "Target %.0fm" % player.global_position.distance_to(target.global_position)
+	combat_label.text = "Hull %d\nShields %d\nContacts %d\nScore %d\nKills %d\n%s" % [
 		int(round(player_hull)),
 		int(round(player_shields)),
 		enemy_nodes.size(),
 		score,
-		kills
+		kills,
+		target_info
 	]
 
 
@@ -658,7 +703,7 @@ func update_enemy_behavior(delta: float) -> void:
 			enemy.global_position = player.global_position - direction * ENEMY_ENGAGE_RADIUS
 
 		if distance < 18.0:
-			damage_player(ENEMY_CONTACT_DAMAGE, "Drone collision")
+			damage_player(ENEMY_CONTACT_DAMAGE, "Drone collision", enemy.global_position)
 			create_burst(enemy.global_position, Color(1.0, 0.48, 0.38))
 			enemy.queue_free()
 			enemy_nodes.remove_at(i)
@@ -739,7 +784,7 @@ func handle_player_projectile_hit(projectile: Node3D) -> bool:
 
 func handle_enemy_projectile_hit(projectile: Node3D) -> bool:
 	if projectile.global_position.distance_to(player.global_position) <= PLAYER_COLLISION_RADIUS + 4.0:
-		damage_player(ENEMY_PROJECTILE_DAMAGE, "Incoming fire")
+		damage_player(ENEMY_PROJECTILE_DAMAGE, "Incoming fire", projectile.global_position)
 		create_burst(projectile.global_position, Color(1.0, 0.56, 0.42))
 		projectile.queue_free()
 		return true
@@ -764,7 +809,7 @@ func update_hazards(delta: float) -> void:
 			damage_player(DEBRIS_DAMAGE_PER_SECOND * delta, "%s debris field" % body["name"])
 
 
-func damage_player(amount: float, reason: String) -> void:
+func damage_player(amount: float, reason: String, source_position: Vector3 = Vector3.ZERO) -> void:
 	if game_over_state:
 		return
 	shield_recharge_delay = SHIELD_RECHARGE_DELAY
@@ -776,6 +821,7 @@ func damage_player(amount: float, reason: String) -> void:
 		player_hull = max(player_hull - amount, 0.0)
 	create_burst(player.global_position, Color(1.0, 0.8, 0.46) if player_shields > 0.0 else Color(1.0, 0.4, 0.36))
 	set_alert(reason, 0.45)
+	show_hit_feedback(build_hit_message(reason, source_position))
 	if player_hull <= 0.0:
 		trigger_game_over(reason)
 
@@ -787,6 +833,44 @@ func trigger_game_over(reason: String) -> void:
 	pause_label.visible = true
 	pause_label.text = "Ship Lost\n%s\nPress Enter to restart" % reason
 	update_status("Run ended.\nPress Enter to restart the patrol.")
+
+
+func build_hit_message(reason: String, source_position: Vector3) -> String:
+	if source_position == Vector3.ZERO:
+		return reason
+	var to_source := (source_position - player.global_position).normalized()
+	var alignment: float = player.call("get_aim_direction").dot(to_source)
+	if alignment > 0.45:
+		return "%s ahead" % reason
+	if alignment < -0.45:
+		return "%s aft" % reason
+	var side := "port"
+	if to_source.dot(player.global_basis.x) > 0.0:
+		side = "starboard"
+	return "%s %s" % [reason, side]
+
+
+func get_primary_enemy_target() -> Node3D:
+	var closest: Node3D = null
+	var closest_distance := INF
+	for enemy in enemy_nodes:
+		if not is_instance_valid(enemy):
+			continue
+		var distance := player.global_position.distance_to(enemy.global_position)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest = enemy
+	return closest
+
+
+func update_enemy_target_marker() -> void:
+	var target := get_primary_enemy_target()
+	if target == null:
+		enemy_target_marker.visible = false
+		return
+	enemy_target_marker.visible = true
+	enemy_target_marker.global_position = target.global_position + Vector3(0, 16, 0)
+	enemy_target_marker.rotate_y(0.02)
 
 
 func create_burst(position: Vector3, color: Color) -> void:
@@ -1092,6 +1176,17 @@ func build_enemy_ship_mesh() -> ArrayMesh:
 		Vector3(-7, 0, 1), Vector3(-2, 0, 4),
 		Vector3(7, 0, 1), Vector3(2, 0, 4),
 		Vector3(0, -2.2, 5), Vector3(0, 2.6, 7)
+	])
+	return build_line_mesh(vertices)
+
+
+func build_enemy_target_marker_mesh(radius: float) -> ArrayMesh:
+	var inner := radius * 0.48
+	var vertices := PackedVector3Array([
+		Vector3(-radius, 0, -radius), Vector3(-inner, 0, -inner),
+		Vector3(radius, 0, -radius), Vector3(inner, 0, -inner),
+		Vector3(-radius, 0, radius), Vector3(-inner, 0, inner),
+		Vector3(radius, 0, radius), Vector3(inner, 0, inner)
 	])
 	return build_line_mesh(vertices)
 

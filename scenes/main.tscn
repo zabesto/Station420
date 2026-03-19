@@ -111,3 +111,22 @@ horizontal_alignment = 1
 vertical_alignment = 1
 theme_override_font_sizes/font_size = 34
 text = "Paused\nPress Esc to resume"
+
+[node name="StartLabel" type="Label" parent="CanvasLayer/HUD"]
+offset_left = 170.0
+offset_top = 150.0
+offset_right = 790.0
+offset_bottom = 390.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 32
+text = "Station420: Get Dusted\n\nWASD move, R/F rise and descend, Shift boosts, Space fires.\nDock with E. Avoid the star and debris belts.\n\nPress Enter to launch"
+
+[node name="HitLabel" type="Label" parent="CanvasLayer/HUD"]
+offset_left = 285.0
+offset_top = 96.0
+offset_right = 665.0
+offset_bottom = 156.0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 24
+text = ""
