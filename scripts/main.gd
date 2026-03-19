@@ -1,7 +1,8 @@
 extends Node3D
 
 const WORLD_LIMIT := Vector3(4800, 1200, 4800)
-const CAMERA_OFFSET := Vector3(0, 86, 150)
+const CAMERA_OFFSET := Vector3(0, 76, 136)
+const CAMERA_VELOCITY_LEAD := 0.18
 const STAR_MASS := 620000.0
 const STAR_RADIUS := 90.0
 const SHIP_GRAVITY_SCALE := 0.32
@@ -84,6 +85,7 @@ var objective_flash_time := 0.0
 var star_node: Node3D
 var planet_bodies := []
 var planet_nodes_by_name := {}
+var world_root: Node3D
 
 
 func _ready() -> void:
@@ -92,13 +94,15 @@ func _ready() -> void:
 	create_star()
 	create_planets()
 	create_stations()
+	create_shipping_lanes()
+	create_navigation_beacons()
 	create_objective_visuals()
 	setup_cargo_route()
 
 	if station_order.size() > 0:
 		player.global_position = station_order[0].global_position + Vector3(0, 0, 30)
 
-	update_status("WASD move, R/F rise and descend.\nEverything orbits the star now, so distances are much larger.")
+	update_status("WASD move, R/F rise and descend.\nHold Shift to boost through the shipping lanes.")
 
 
 func _process(delta: float) -> void:
@@ -121,11 +125,27 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func create_starfield() -> void:
-	var stars := MeshInstance3D.new()
-	stars.name = "Stars"
-	stars.mesh = build_star_mesh()
-	stars.material_override = make_line_material(Color(0.82, 0.9, 1.0))
-	add_child(stars)
+	world_root = Node3D.new()
+	world_root.name = "WorldDetail"
+	add_child(world_root)
+
+	var far_stars := MeshInstance3D.new()
+	far_stars.name = "FarStars"
+	far_stars.mesh = build_star_mesh(420, WORLD_LIMIT, 0.45, 2.0)
+	far_stars.material_override = make_line_material(Color(0.82, 0.9, 1.0))
+	add_child(far_stars)
+
+	var mid_stars := MeshInstance3D.new()
+	mid_stars.name = "MidStars"
+	mid_stars.mesh = build_star_mesh(180, WORLD_LIMIT * 0.72, 1.2, 3.4)
+	mid_stars.material_override = make_line_material(Color(0.46, 0.88, 1.0))
+	add_child(mid_stars)
+
+	var dust_ribbons := MeshInstance3D.new()
+	dust_ribbons.name = "DustRibbons"
+	dust_ribbons.mesh = build_dust_ribbon_mesh()
+	dust_ribbons.material_override = make_line_material(Color(0.26, 0.6, 0.74))
+	world_root.add_child(dust_ribbons)
 
 
 func create_star() -> void:
@@ -178,6 +198,12 @@ func create_planets() -> void:
 		orbit_ring.material_override = make_line_material(planet_data["orbit_tint"])
 		orbit_ring.rotation = Vector3(tilt, 0, 0)
 		add_child(orbit_ring)
+
+		var debris_ring := MeshInstance3D.new()
+		debris_ring.mesh = build_debris_belt_mesh(float(planet_data["radius"]) + 54.0, 62.0, 56)
+		debris_ring.material_override = make_line_material(planet_data["orbit_tint"].lerp(Color.WHITE, 0.18))
+		debris_ring.rotation = Vector3(tilt * 3.4, phase * 0.25, 0)
+		root.add_child(debris_ring)
 
 		var planet_label := Label3D.new()
 		planet_label.position = Vector3(0, planet_data["radius"] + 12.0, 0)
@@ -250,6 +276,48 @@ func create_stations() -> void:
 
 		station_order.append(station)
 		station_nodes_by_name[station_data["name"]] = station
+
+
+func create_shipping_lanes() -> void:
+	for i in range(0, station_order.size(), 2):
+		if i + 1 >= station_order.size():
+			break
+		var from_station := station_order[i]
+		var to_station := station_order[i + 1]
+		var parent_planet: Node3D = from_station.get_parent().get_parent()
+		var lane := MeshInstance3D.new()
+		lane.mesh = build_shipping_lane_mesh(
+			parent_planet.to_local(from_station.global_position),
+			parent_planet.to_local(to_station.global_position)
+		)
+		lane.material_override = make_line_material(Color(0.34, 0.88, 0.76))
+		parent_planet.add_child(lane)
+
+
+func create_navigation_beacons() -> void:
+	var beacons := [
+		{"label": "Spinward", "position": Vector3(0, 180, -WORLD_LIMIT.z * 0.82), "color": Color(0.52, 0.82, 1.0)},
+		{"label": "Rimward", "position": Vector3(0, -160, WORLD_LIMIT.z * 0.82), "color": Color(0.48, 1.0, 0.72)},
+		{"label": "Sunrise", "position": Vector3(WORLD_LIMIT.x * 0.82, 110, 0), "color": Color(1.0, 0.68, 0.34)},
+		{"label": "Null Reach", "position": Vector3(-WORLD_LIMIT.x * 0.82, -90, 0), "color": Color(1.0, 0.42, 0.56)}
+	]
+
+	for beacon_data in beacons:
+		var root := Node3D.new()
+		root.position = beacon_data["position"]
+		world_root.add_child(root)
+
+		var mesh := MeshInstance3D.new()
+		mesh.mesh = build_nav_beacon_mesh(24.0)
+		mesh.material_override = make_line_material(beacon_data["color"])
+		root.add_child(mesh)
+
+		var label := Label3D.new()
+		label.text = beacon_data["label"]
+		label.position = Vector3(0, 24, 0)
+		label.font_size = 32
+		label.no_depth_test = true
+		root.add_child(label)
 
 
 func create_objective_visuals() -> void:
@@ -329,9 +397,11 @@ func update_status(message: String) -> void:
 
 
 func update_camera(delta: float) -> void:
-	var desired := player.global_position + CAMERA_OFFSET
+	var lead := player.velocity * CAMERA_VELOCITY_LEAD
+	var desired := player.global_position + CAMERA_OFFSET + lead
 	camera.global_position = camera.global_position.lerp(desired, min(delta * 1.45, 1.0))
-	camera.look_at(player.global_position + Vector3(0, 8, -18), Vector3.UP)
+	var look_target := player.global_position + player.velocity * 0.1 + Vector3(0, 6, -10)
+	camera.look_at(look_target, Vector3.UP)
 
 
 func update_objective_visuals(delta: float) -> void:
@@ -369,6 +439,7 @@ func update_scanner() -> void:
 	lines.append("Star Dist  %.0f" % player.global_position.length())
 	lines.append("Gravity    %.2f" % compute_ship_gravity().length())
 	lines.append("Speed      %.1f" % player.velocity.length())
+	lines.append("Boost      %s" % ("online" if Input.is_key_pressed(KEY_SHIFT) else "idle"))
 	lines.append("")
 
 	for station in station_order:
@@ -416,7 +487,7 @@ func _on_station_body_exited(body: Node3D, station: Area3D) -> void:
 	if nearby_station == station:
 		nearby_station = null
 		title_label.text = "Wireframe System"
-		update_status("WASD move, R/F rise and descend.\nPlanets and stations are on star orbits now.")
+		update_status("WASD move, R/F rise and descend.\nHold Shift to boost toward the active shipping corridor.")
 
 
 func setup_cargo_route() -> void:
@@ -483,18 +554,18 @@ func make_line_material(color: Color) -> StandardMaterial3D:
 	return material
 
 
-func build_star_mesh() -> ArrayMesh:
+func build_star_mesh(count: int, extents: Vector3, min_size: float, max_size: float) -> ArrayMesh:
 	var vertices := PackedVector3Array()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4606
 
-	for i in range(380):
+	for i in range(count):
 		var center := Vector3(
-			rng.randf_range(-WORLD_LIMIT.x, WORLD_LIMIT.x),
-			rng.randf_range(-WORLD_LIMIT.y, WORLD_LIMIT.y),
-			rng.randf_range(-WORLD_LIMIT.z, WORLD_LIMIT.z)
+			rng.randf_range(-extents.x, extents.x),
+			rng.randf_range(-extents.y, extents.y),
+			rng.randf_range(-extents.z, extents.z)
 		)
-		var size := rng.randf_range(0.45, 2.0)
+		var size := rng.randf_range(min_size, max_size)
 		vertices.append_array([
 			center + Vector3(-size, 0, 0), center + Vector3(size, 0, 0),
 			center + Vector3(0, -size, 0), center + Vector3(0, size, 0),
@@ -549,6 +620,71 @@ func build_dock_marker_mesh(radius: float) -> ArrayMesh:
 
 func build_ring_mesh(radius: float, segments: int) -> ArrayMesh:
 	return build_line_mesh(build_circle_vertices(radius, segments, Vector3.RIGHT, Vector3.UP))
+
+
+func build_shipping_lane_mesh(from_point: Vector3, to_point: Vector3) -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	var segments := 18
+	var midpoint := (from_point + to_point) * 0.5
+	var lift := midpoint.normalized() * 38.0
+	var previous := from_point
+	for i in range(1, segments + 1):
+		var t := float(i) / float(segments)
+		var point := from_point.lerp(to_point, t) + sin(t * PI) * lift
+		vertices.append(previous)
+		vertices.append(point)
+		previous = point
+	return build_line_mesh(vertices)
+
+
+func build_debris_belt_mesh(radius: float, spread: float, count: int) -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(radius * 13.0)
+	for i in range(count):
+		var angle := rng.randf_range(0.0, TAU)
+		var distance := radius + rng.randf_range(-spread, spread)
+		var center := Vector3(cos(angle) * distance, rng.randf_range(-10.0, 10.0), sin(angle) * distance)
+		var size := rng.randf_range(2.4, 6.0)
+		vertices.append_array([
+			center + Vector3(-size, 0, 0), center + Vector3(size, 0, 0),
+			center + Vector3(0, -size * 0.6, 0), center + Vector3(0, size * 0.6, 0),
+			center + Vector3(0, 0, -size), center + Vector3(0, 0, size)
+		])
+	return build_line_mesh(vertices)
+
+
+func build_nav_beacon_mesh(radius: float) -> ArrayMesh:
+	var vertices := PackedVector3Array([
+		Vector3(0, radius, 0), Vector3(radius * 0.5, 0, 0),
+		Vector3(radius * 0.5, 0, 0), Vector3(0, -radius, 0),
+		Vector3(0, -radius, 0), Vector3(-radius * 0.5, 0, 0),
+		Vector3(-radius * 0.5, 0, 0), Vector3(0, radius, 0),
+		Vector3(0, 0, -radius * 0.7), Vector3(0, 0, radius * 0.7)
+	])
+	return build_line_mesh(vertices)
+
+
+func build_dust_ribbon_mesh() -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7781
+	for ribbon in range(5):
+		var previous := Vector3(
+			-WORLD_LIMIT.x * 0.8,
+			rng.randf_range(-WORLD_LIMIT.y * 0.6, WORLD_LIMIT.y * 0.6),
+			rng.randf_range(-WORLD_LIMIT.z * 0.7, WORLD_LIMIT.z * 0.7)
+		)
+		for i in range(1, 22):
+			var point := Vector3(
+				lerp(-WORLD_LIMIT.x * 0.8, WORLD_LIMIT.x * 0.8, float(i) / 21.0),
+				previous.y + rng.randf_range(-34.0, 34.0),
+				previous.z + rng.randf_range(-160.0, 160.0)
+			)
+			vertices.append(previous)
+			vertices.append(point)
+			previous = point
+	return build_line_mesh(vertices)
 
 
 func build_circle_vertices(radius: float, segments: int, axis_a: Vector3, axis_b: Vector3) -> PackedVector3Array:

@@ -1,8 +1,13 @@
 extends CharacterBody3D
 
-@export var thrust := 110.0
-@export var max_speed := 260.0
-@export var damping := 0.55
+@export var thrust := 120.0
+@export var max_speed := 280.0
+@export var damping := 0.42
+@export var boost_multiplier := 1.85
+@export var boost_damping := 0.24
+@export var turn_speed := 5.4
+@export var banking_angle := 0.38
+@export var pitch_angle := 0.22
 @export var arena_limit := Vector3(4800, 1200, 4800)
 
 @onready var visual: MeshInstance3D = $Visual
@@ -11,11 +16,19 @@ var trail_points := PackedVector3Array()
 var trail_mesh_instance: MeshInstance3D
 var trail_accumulator := 0.0
 var gravity_acceleration := Vector3.ZERO
+var engine_mesh_instance: MeshInstance3D
+var boost_active := false
 
 
 func _ready() -> void:
 	visual.mesh = build_ship_mesh()
 	visual.material_override = make_ship_material()
+	engine_mesh_instance = MeshInstance3D.new()
+	engine_mesh_instance.name = "EngineGlow"
+	engine_mesh_instance.position = Vector3(0, 0, 1.95)
+	engine_mesh_instance.mesh = build_engine_mesh()
+	engine_mesh_instance.material_override = make_engine_material()
+	visual.add_child(engine_mesh_instance)
 	trail_mesh_instance = MeshInstance3D.new()
 	trail_mesh_instance.name = "Trail"
 	trail_mesh_instance.material_override = make_trail_material()
@@ -39,18 +52,18 @@ func _physics_process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_F):
 		input_direction.y -= 1.0
 
-	var thrust_vector := input_direction.normalized() * thrust if input_direction.length() > 0.0 else Vector3.ZERO
+	boost_active = Input.is_key_pressed(KEY_SHIFT)
+	var current_thrust := thrust * boost_multiplier if boost_active else thrust
+	var thrust_vector := input_direction.normalized() * current_thrust if input_direction.length() > 0.0 else Vector3.ZERO
 	velocity += (thrust_vector + gravity_acceleration) * delta
-	velocity *= 1.0 / (1.0 + damping * delta)
-	velocity = velocity.limit_length(max_speed)
+	var current_damping := boost_damping if boost_active else damping
+	velocity *= 1.0 / (1.0 + current_damping * delta)
+	velocity = velocity.limit_length(max_speed * boost_multiplier if boost_active else max_speed)
 	move_and_slide()
 
 	global_position = wrap_position(global_position)
-
-	if input_direction.length() > 0.05:
-		visual.look_at(global_position + input_direction + gravity_acceleration * 0.03, Vector3.UP, true)
-	elif velocity.length() > 0.2:
-		visual.look_at(global_position + velocity.normalized(), Vector3.UP, true)
+	update_visual_orientation(delta, input_direction)
+	update_engine_visual(delta)
 
 	update_trail(delta, input_direction)
 
@@ -82,12 +95,51 @@ func make_trail_material() -> StandardMaterial3D:
 	return material
 
 
+func make_engine_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(0.45, 0.9, 1.0, 0.8)
+	material.emission_enabled = true
+	material.emission = Color(0.5, 0.95, 1.0)
+	return material
+
+
+func update_visual_orientation(delta: float, input_direction: Vector3) -> void:
+	var desired_forward := -visual.global_basis.z
+	if velocity.length() > 12.0:
+		desired_forward = velocity.normalized()
+	elif input_direction.length() > 0.05:
+		desired_forward = input_direction.normalized()
+	elif gravity_acceleration.length() > 0.1:
+		desired_forward = (desired_forward + gravity_acceleration.normalized() * 0.15).normalized()
+
+	var target_basis := Basis.looking_at(desired_forward, Vector3.UP, true)
+	var local_input := global_basis.inverse() * input_direction
+	var bank := -local_input.x * banking_angle
+	var pitch := local_input.z * pitch_angle + local_input.y * pitch_angle * 0.7
+	target_basis = target_basis.rotated(target_basis.z.normalized(), bank)
+	target_basis = target_basis.rotated(target_basis.x.normalized(), pitch)
+	visual.global_basis = visual.global_basis.slerp(target_basis.orthonormalized(), clamp(delta * turn_speed, 0.0, 1.0))
+
+
+func update_engine_visual(delta: float) -> void:
+	var speed_ratio: float = clamp(velocity.length() / max_speed, 0.0, 1.6)
+	var flare_length: float = lerp(0.75, 2.3, speed_ratio)
+	if boost_active:
+		flare_length += 0.85
+	var pulse := 0.88 + sin(Time.get_ticks_msec() * 0.012) * 0.08
+	engine_mesh_instance.scale = Vector3(1.0, 1.0, flare_length * pulse)
+	engine_mesh_instance.position = Vector3(0, 0, 1.4 + flare_length * 0.2)
+
+
 func update_trail(delta: float, input_direction: Vector3) -> void:
 	trail_accumulator += delta
-	if velocity.length() > 1.5 and trail_accumulator >= 0.05:
+	var trail_interval := 0.028 if boost_active else 0.05
+	if velocity.length() > 1.5 and trail_accumulator >= trail_interval:
 		trail_accumulator = 0.0
 		trail_points.append(global_position + Vector3(0, 0, 1.6))
-		while trail_points.size() > 18:
+		while trail_points.size() > (26 if boost_active else 18):
 			trail_points.remove_at(0)
 
 	var vertices := PackedVector3Array()
@@ -138,6 +190,24 @@ func build_ship_mesh() -> ArrayMesh:
 		Vector3(2.3, 0, 0.7), Vector3(0.7, 0, -0.5)
 	])
 
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	return mesh
+
+
+func build_engine_mesh() -> ArrayMesh:
+	var vertices := PackedVector3Array([
+		Vector3(-0.36, -0.2, 0.0), Vector3(0.36, -0.2, 0.0),
+		Vector3(0.36, -0.2, 0.0), Vector3(0.0, 0.0, 1.0),
+		Vector3(0.0, 0.0, 1.0), Vector3(-0.36, -0.2, 0.0),
+		Vector3(-0.24, 0.18, 0.0), Vector3(0.24, 0.18, 0.0),
+		Vector3(0.24, 0.18, 0.0), Vector3(0.0, 0.0, 1.0),
+		Vector3(0.0, 0.0, 1.0), Vector3(-0.24, 0.18, 0.0)
+	])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
