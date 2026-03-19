@@ -36,6 +36,175 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
+[node name="TopFrame" type="Panel" parent="CanvasLayer/HUD"]
+offset_left = 220.0
+offset_top = 18.0
+offset_right = 740.0
+offset_bottom = 110.0
+
+[node name="AlertValue" type="Label" parent="CanvasLayer/HUD/TopFrame"]
+offset_left = 20.0
+offset_top = 12.0
+offset_right = 500.0
+offset_bottom = 44.0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 26
+text = ""
+
+[node name="HitValue" type="Label" parent="CanvasLayer/HUD/TopFrame"]
+offset_left = 20.0
+offset_top = 46.0
+offset_right = 500.0
+offset_bottom = 72.0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+text = ""
+
+[node name="LeftFrame" type="Panel" parent="CanvasLayer/HUD"]
+offset_left = 20.0
+offset_top = 18.0
+offset_right = 292.0
+offset_bottom = 286.0
+
+[node name="ShipTitle" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 240.0
+offset_bottom = 36.0
+theme_override_font_sizes/font_size = 20
+text = "SHIP STATUS"
+
+[node name="HullText" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 16.0
+offset_top = 48.0
+offset_right = 90.0
+offset_bottom = 70.0
+theme_override_font_sizes/font_size = 16
+text = "HULL"
+
+[node name="HullBar" type="ProgressBar" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 92.0
+offset_top = 48.0
+offset_right = 248.0
+offset_bottom = 68.0
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="ShieldText" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 16.0
+offset_top = 76.0
+offset_right = 90.0
+offset_bottom = 98.0
+theme_override_font_sizes/font_size = 16
+text = "SHIELD"
+
+[node name="ShieldBar" type="ProgressBar" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 92.0
+offset_top = 76.0
+offset_right = 248.0
+offset_bottom = 96.0
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="DockValue" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 16.0
+offset_top = 112.0
+offset_right = 248.0
+offset_bottom = 138.0
+theme_override_font_sizes/font_size = 17
+text = "Docked: none"
+
+[node name="RouteValue" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 16.0
+offset_top = 146.0
+offset_right = 252.0
+offset_bottom = 214.0
+theme_override_font_sizes/font_size = 16
+text = "Cargo route"
+
+[node name="ScannerValue" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
+offset_left = 16.0
+offset_top = 222.0
+offset_right = 252.0
+offset_bottom = 330.0
+theme_override_font_sizes/font_size = 14
+text = "Scanner"
+
+[node name="RightFrame" type="Panel" parent="CanvasLayer/HUD"]
+offset_left = 700.0
+offset_top = 18.0
+offset_right = 940.0
+offset_bottom = 286.0
+
+[node name="CombatTitle" type="Label" parent="CanvasLayer/HUD/RightFrame"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 200.0
+offset_bottom = 36.0
+theme_override_font_sizes/font_size = 20
+text = "TACTICAL"
+
+[node name="CombatValue" type="Label" parent="CanvasLayer/HUD/RightFrame"]
+offset_left = 16.0
+offset_top = 48.0
+offset_right = 214.0
+offset_bottom = 180.0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 17
+text = "Contacts"
+
+[node name="MessageFrame" type="Panel" parent="CanvasLayer/HUD"]
+offset_left = 310.0
+offset_top = 430.0
+offset_right = 650.0
+offset_bottom = 516.0
+
+[node name="MessageValue" type="Label" parent="CanvasLayer/HUD/MessageFrame"]
+offset_left = 18.0
+offset_top = 14.0
+offset_right = 324.0
+offset_bottom = 70.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 18
+text = "Status"
+
+[node name="Reticle" type="Control" parent="CanvasLayer/HUD"]
+offset_left = 450.0
+offset_top = 240.0
+offset_right = 510.0
+offset_bottom = 300.0
+
+[node name="ReticleTop" type="ColorRect" parent="CanvasLayer/HUD/Reticle"]
+offset_left = 28.0
+offset_top = 0.0
+offset_right = 32.0
+offset_bottom = 14.0
+color = Color(0.6, 1, 0.86, 1)
+
+[node name="ReticleBottom" type="ColorRect" parent="CanvasLayer/HUD/Reticle"]
+offset_left = 28.0
+offset_top = 46.0
+offset_right = 32.0
+offset_bottom = 60.0
+color = Color(0.6, 1, 0.86, 1)
+
+[node name="ReticleLeft" type="ColorRect" parent="CanvasLayer/HUD/Reticle"]
+offset_left = 0.0
+offset_top = 28.0
+offset_right = 14.0
+offset_bottom = 32.0
+color = Color(0.6, 1, 0.86, 1)
+
+[node name="ReticleRight" type="ColorRect" parent="CanvasLayer/HUD/Reticle"]
+offset_left = 46.0
+offset_top = 28.0
+offset_right = 60.0
+offset_bottom = 32.0
+color = Color(0.6, 1, 0.86, 1)
+
 [node name="TitleLabel" type="Label" parent="CanvasLayer/HUD"]
 offset_left = 24.0
 offset_top = 20.0
@@ -122,7 +291,7 @@ offset_bottom = 390.0
 horizontal_alignment = 1
 vertical_alignment = 1
 theme_override_font_sizes/font_size = 32
-text = "Station420: Get Dusted\n\nKeyboard: WASD move, R/F rise, Shift boost, Space fire, E dock.\nController: Left stick move, triggers rise/descend, RB boost, A fire, X dock.\nAvoid the star and debris belts.\n\nPress Enter or A to launch"
+text = "Station420: Get Dusted\n\nKeyboard: WASD move, R/F rise, Shift boost, Space fire, E dock, Tab camera.\nController: Left stick move, triggers rise/descend, RB boost, A fire, X dock, Y camera.\nAvoid the star and debris belts.\n\nPress Enter or A to launch"
 
 [node name="HitLabel" type="Label" parent="CanvasLayer/HUD"]
 offset_left = 285.0
@@ -186,7 +355,7 @@ offset_top = 190.0
 offset_right = 252.0
 offset_bottom = 234.0
 theme_override_font_sizes/font_size = 15
-text = "Tab or Y toggles this panel"
+text = "F1 or Back toggles this panel"
 
 [node name="SettingsHotkeys" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0

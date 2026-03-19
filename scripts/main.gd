@@ -107,6 +107,16 @@ const STATION_LAYOUT := [
 @onready var pause_label: Label = $CanvasLayer/HUD/PauseLabel
 @onready var start_label: Label = $CanvasLayer/HUD/StartLabel
 @onready var hit_label: Label = $CanvasLayer/HUD/HitLabel
+@onready var hull_bar: ProgressBar = $CanvasLayer/HUD/LeftFrame/HullBar
+@onready var shield_bar: ProgressBar = $CanvasLayer/HUD/LeftFrame/ShieldBar
+@onready var dock_value: Label = $CanvasLayer/HUD/LeftFrame/DockValue
+@onready var route_value: Label = $CanvasLayer/HUD/LeftFrame/RouteValue
+@onready var scanner_value: Label = $CanvasLayer/HUD/LeftFrame/ScannerValue
+@onready var combat_value: Label = $CanvasLayer/HUD/RightFrame/CombatValue
+@onready var message_value: Label = $CanvasLayer/HUD/MessageFrame/MessageValue
+@onready var alert_value: Label = $CanvasLayer/HUD/TopFrame/AlertValue
+@onready var hit_value: Label = $CanvasLayer/HUD/TopFrame/HitValue
+@onready var reticle: Control = $CanvasLayer/HUD/Reticle
 @onready var settings_panel: Panel = $CanvasLayer/HUD/SettingsPanel
 @onready var settings_title: Label = $CanvasLayer/HUD/SettingsPanel/SettingsTitle
 @onready var preset_value: Label = $CanvasLayer/HUD/SettingsPanel/PresetValue
@@ -160,6 +170,7 @@ var visual_preset_index := 0
 var bloom_enabled := true
 var music_enabled := true
 var sfx_enabled := true
+var camera_mode := 0
 
 
 func _ready() -> void:
@@ -169,6 +180,14 @@ func _ready() -> void:
 	pause_label.visible = false
 	start_label.visible = true
 	settings_panel.visible = false
+	dock_label.visible = false
+	cargo_label.visible = false
+	objective_label.visible = false
+	scanner_label.visible = false
+	message_label.visible = false
+	combat_label.visible = false
+	alert_label.visible = false
+	hit_label.visible = false
 	if DisplayServer.get_name() != "headless":
 		setup_audio()
 	setup_visual_environment()
@@ -231,6 +250,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_pause()
 			return
 		if event.button_index == JOY_BUTTON_Y:
+			toggle_camera_mode()
+			return
+		if event.button_index == JOY_BUTTON_BACK:
 			settings_visible = not settings_visible
 			settings_panel.visible = settings_visible
 			return
@@ -267,6 +289,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_TAB:
+		toggle_camera_mode()
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1:
 		settings_visible = not settings_visible
 		settings_panel.visible = settings_visible
 		return
@@ -734,6 +760,7 @@ func dock_at_station(station: Area3D) -> void:
 
 func update_status(message: String) -> void:
 	message_label.text = message
+	message_value.text = message
 
 
 func update_alert(delta: float) -> void:
@@ -741,10 +768,12 @@ func update_alert(delta: float) -> void:
 		alert_timer = max(alert_timer - delta, 0.0)
 		if alert_timer == 0.0:
 			alert_label.text = ""
+			alert_value.text = ""
 
 
 func set_alert(message: String, duration: float = 0.7) -> void:
 	alert_label.text = message
+	alert_value.text = message
 	alert_timer = duration
 	if duration >= 0.4:
 		play_sfx("alert")
@@ -917,6 +946,16 @@ func apply_hud_style() -> void:
 	combat_label.modulate = hud_color
 	alert_label.modulate = alert_color
 	hit_label.modulate = alert_color
+	dock_value.modulate = hud_color
+	route_value.modulate = hud_color
+	scanner_value.modulate = hud_color
+	combat_value.modulate = hud_color
+	message_value.modulate = hud_color
+	alert_value.modulate = alert_color
+	hit_value.modulate = alert_color
+	hull_bar.modulate = accent_color
+	shield_bar.modulate = hud_color
+	reticle.modulate = accent_color
 	pause_label.modulate = accent_color
 	start_label.modulate = accent_color
 	settings_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.95)
@@ -941,10 +980,12 @@ func update_hit_feedback(delta: float) -> void:
 		hit_timer = max(hit_timer - delta, 0.0)
 		if hit_timer == 0.0:
 			hit_label.text = ""
+			hit_value.text = ""
 
 
 func show_hit_feedback(message: String) -> void:
 	hit_label.text = message
+	hit_value.text = message
 	hit_timer = 0.55
 
 
@@ -968,6 +1009,10 @@ func toggle_pause() -> void:
 		title_label.text = "Wireframe System"
 
 
+func toggle_camera_mode() -> void:
+	camera_mode = (camera_mode + 1) % 2
+
+
 func restart_game() -> void:
 	get_tree().reload_current_scene()
 
@@ -977,12 +1022,20 @@ func update_combat_label() -> void:
 	var target := get_primary_enemy_target()
 	if target != null:
 		target_info = "Target %.0fm" % player.global_position.distance_to(target.global_position)
+	hull_bar.value = player_hull
+	shield_bar.value = player_shields
 	combat_label.text = "Hull %d\nShields %d\nContacts %d\nScore %d\nKills %d\n%s" % [
 		int(round(player_hull)),
 		int(round(player_shields)),
 		enemy_nodes.size(),
 		score,
 		kills,
+		target_info
+	]
+	combat_value.text = "CONTACTS  %d\nKILLS     %d\nSCORE     %d\n%s" % [
+		enemy_nodes.size(),
+		kills,
+		score,
 		target_info
 	]
 
@@ -1458,11 +1511,20 @@ func update_effects(delta: float) -> void:
 
 
 func update_camera(delta: float) -> void:
+	if camera_mode == 1:
+		var aim_direction: Vector3 = player.call("get_aim_direction")
+		var cockpit_position := player.global_position + Vector3(0, 6.0, 0) + aim_direction * 5.0
+		camera.global_position = camera.global_position.lerp(cockpit_position, min(delta * 10.0, 1.0))
+		camera.look_at(cockpit_position + aim_direction * 160.0, Vector3.UP)
+		reticle.visible = false
+		return
+
 	var lead := player.velocity * CAMERA_VELOCITY_LEAD
 	var desired := player.global_position + CAMERA_OFFSET + lead
 	camera.global_position = camera.global_position.lerp(desired, min(delta * 1.45, 1.0))
 	var look_target := player.global_position + player.velocity * 0.1 + Vector3(0, 6, -10)
 	camera.look_at(look_target, Vector3.UP)
+	reticle.visible = true
 
 
 func update_objective_visuals(delta: float) -> void:
