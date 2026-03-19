@@ -160,7 +160,7 @@ func update_visual_orientation(delta: float, input_direction: Vector3) -> void:
 	elif gravity_acceleration.length() > 0.1:
 		desired_forward = (desired_forward + gravity_acceleration.normalized() * 0.15).normalized()
 
-	var target_basis := Basis.looking_at(desired_forward, Vector3.UP, true)
+	var target_basis := Basis.looking_at(desired_forward, Vector3.UP)
 	var local_input := global_basis.inverse() * input_direction
 	var bank := -local_input.x * banking_angle
 	var pitch := local_input.z * pitch_angle + local_input.y * pitch_angle * 0.7

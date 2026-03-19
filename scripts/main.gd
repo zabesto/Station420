@@ -111,6 +111,10 @@ const STATION_LAYOUT := [
 @onready var pause_label: Label = $CanvasLayer/HUD/PauseLabel
 @onready var start_label: Label = $CanvasLayer/HUD/StartLabel
 @onready var hit_label: Label = $CanvasLayer/HUD/HitLabel
+@onready var top_frame: Panel = $CanvasLayer/HUD/TopFrame
+@onready var left_frame: Panel = $CanvasLayer/HUD/LeftFrame
+@onready var right_frame: Panel = $CanvasLayer/HUD/RightFrame
+@onready var message_frame: Panel = $CanvasLayer/HUD/MessageFrame
 @onready var hull_bar: ProgressBar = $CanvasLayer/HUD/LeftFrame/HullBar
 @onready var shield_bar: ProgressBar = $CanvasLayer/HUD/LeftFrame/ShieldBar
 @onready var dock_value: Label = $CanvasLayer/HUD/LeftFrame/DockValue
@@ -999,6 +1003,7 @@ func apply_hud_style() -> void:
 			hud_color = Color(0.84, 0.9, 1.0)
 			accent_color = Color(0.96, 0.98, 1.0)
 			alert_color = Color(1.0, 0.5, 0.45)
+	apply_panel_styles(hud_color, accent_color, alert_color)
 	title_label.modulate = accent_color
 	dock_label.modulate = hud_color
 	cargo_label.modulate = hud_color
@@ -1028,6 +1033,49 @@ func apply_hud_style() -> void:
 	sfx_value.modulate = hud_color
 	settings_hint.modulate = accent_color
 	settings_hotkeys.modulate = hud_color
+
+
+func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Color) -> void:
+	top_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.05, 0.06, 0.08, 0.72), alert_color, 18))
+	left_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.76), accent_color, 20))
+	right_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.76), accent_color, 20))
+	message_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.8), hud_color, 18))
+	settings_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.88), accent_color, 16))
+
+	hull_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.1, 0.13, 0.18, 0.92), hud_color.darkened(0.55)))
+	hull_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(alert_color.r, alert_color.g * 0.85, alert_color.b * 0.85, 0.98), accent_color))
+	shield_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.08, 0.11, 0.16, 0.92), hud_color.darkened(0.55)))
+	shield_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(hud_color.r * 0.72, hud_color.g * 0.9, 1.0, 0.98), accent_color))
+
+
+func make_panel_stylebox(background: Color, border: Color, radius: int) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(2)
+	style.corner_radius_top_left = radius
+	style.corner_radius_top_right = radius
+	style.corner_radius_bottom_right = radius
+	style.corner_radius_bottom_left = radius
+	style.content_margin_left = 10.0
+	style.content_margin_top = 8.0
+	style.content_margin_right = 10.0
+	style.content_margin_bottom = 8.0
+	style.shadow_color = Color(0, 0, 0, 0.34)
+	style.shadow_size = 10
+	return style
+
+
+func make_bar_stylebox(background: Color, border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_right = 8
+	style.corner_radius_bottom_left = 8
+	return style
 
 
 func update_settings_label() -> void:
