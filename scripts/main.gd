@@ -17,6 +17,17 @@ const ENEMY_FIRE_RADIUS := 560.0
 const PLAYER_MAX_HULL := 100.0
 const PLAYER_MAX_SHIELDS := 100.0
 const SHIELD_RECHARGE_RATE := 10.0
+const SHIELD_RECHARGE_DELAY := 2.6
+const STAR_DAMAGE_RADIUS := 210.0
+const STAR_DAMAGE_PER_SECOND := 34.0
+const DEBRIS_HAZARD_THICKNESS := 26.0
+const DEBRIS_DAMAGE_PER_SECOND := 11.0
+const ENEMY_MAX_HULL := 40.0
+const PLAYER_PROJECTILE_DAMAGE := 20.0
+const ENEMY_PROJECTILE_DAMAGE := 16.0
+const ENEMY_CONTACT_DAMAGE := 24.0
+const PLAYER_FIRE_RANGE := 1200.0
+const ENEMY_SPAWN_COUNT := 4
 const PLAYER_COLLISION_RADIUS := 6.0
 const PLANET_COLLISION_MARGIN := 8.0
 const STAR_COLLISION_MARGIN := 18.0
@@ -130,27 +141,59 @@ func _ready() -> void:
 	create_navigation_beacons()
 	create_objective_visuals()
 	setup_cargo_route()
+	call_deferred("spawn_initial_enemies")
 
 	if station_order.size() > 0:
 		player.global_position = station_order[0].global_position + Vector3(0, 0, 30)
 
+	title_label.text = "Wireframe System"
+	update_combat_label()
 	update_status("WASD move, R/F rise and descend.\nHold Shift to boost through the shipping lanes.")
 
 
 func _process(delta: float) -> void:
+	if paused:
+		update_alert(delta)
+		return
+
 	update_camera(delta)
 	update_objective_visuals(delta)
 	update_scanner()
 	update_alert(delta)
+	update_combat_label()
 
 
 func _physics_process(delta: float) -> void:
+	if paused:
+		return
+
 	simulate_planets(delta)
 	player.call("set_gravity_acceleration", compute_ship_gravity() * SHIP_GRAVITY_SCALE)
 	resolve_player_solids()
+	update_player_combat(delta)
+	update_hazards(delta)
+	update_enemy_behavior(delta)
+	update_projectiles(delta)
+	update_effects(delta)
+	maybe_spawn_enemies(delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		toggle_pause()
+		return
+
+	if paused:
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and game_over_state:
+		restart_game()
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE:
+		try_fire_player_projectile()
+		return
+
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
 		if nearby_station:
 			dock_at_station(nearby_station)
@@ -498,6 +541,279 @@ func set_alert(message: String, duration: float = 0.7) -> void:
 	alert_timer = duration
 
 
+func toggle_pause() -> void:
+	if game_over_state:
+		return
+	paused = not paused
+	pause_label.visible = paused
+	if paused:
+		pause_label.text = "Paused\nPress Esc to resume"
+		title_label.text = "Paused"
+	else:
+		title_label.text = "Wireframe System"
+
+
+func restart_game() -> void:
+	get_tree().reload_current_scene()
+
+
+func update_combat_label() -> void:
+	combat_label.text = "Hull %d\nShields %d\nContacts %d\nScore %d\nKills %d" % [
+		int(round(player_hull)),
+		int(round(player_shields)),
+		enemy_nodes.size(),
+		score,
+		kills
+	]
+
+
+func update_player_combat(delta: float) -> void:
+	fire_cooldown = max(fire_cooldown - delta, 0.0)
+	shield_recharge_delay = max(shield_recharge_delay - delta, 0.0)
+	if shield_recharge_delay == 0.0 and player_shields < PLAYER_MAX_SHIELDS:
+		player_shields = min(player_shields + SHIELD_RECHARGE_RATE * delta, PLAYER_MAX_SHIELDS)
+
+
+func try_fire_player_projectile() -> void:
+	if game_over_state or fire_cooldown > 0.0:
+		return
+	fire_cooldown = PLAYER_FIRE_COOLDOWN
+	var origin: Vector3 = player.call("get_muzzle_position")
+	var direction: Vector3 = player.call("get_aim_direction")
+	spawn_projectile(origin, direction * PLAYER_PROJECTILE_SPEED + player.velocity * 0.35, true)
+	set_alert("Pulse fired", 0.2)
+
+
+func spawn_initial_enemies() -> void:
+	for i in range(ENEMY_SPAWN_COUNT):
+		spawn_enemy()
+
+
+func maybe_spawn_enemies(delta: float) -> void:
+	if game_over_state:
+		return
+	if enemy_nodes.size() >= ENEMY_SPAWN_COUNT:
+		enemy_respawn_timer = 0.0
+		return
+	enemy_respawn_timer += delta
+	if enemy_respawn_timer >= ENEMY_RESPAWN_TIME:
+		enemy_respawn_timer = 0.0
+		spawn_enemy()
+
+
+func spawn_enemy() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var radial := Vector3(rng.randf_range(-1.0, 1.0), rng.randf_range(-0.2, 0.2), rng.randf_range(-1.0, 1.0)).normalized()
+	var tangent := Vector3(-radial.z, 0, radial.x).normalized()
+	var spawn_position := player.global_position + radial * rng.randf_range(340.0, 620.0) + tangent * rng.randf_range(-180.0, 180.0)
+
+	var enemy := Node3D.new()
+	enemy.name = "Drone"
+	enemy.position = spawn_position
+	enemy.set_meta("velocity", Vector3.ZERO)
+	enemy.set_meta("hull", ENEMY_MAX_HULL)
+	enemy.set_meta("fire_cooldown", rng.randf_range(0.8, 1.6))
+	enemy.set_meta("orbit_bias", rng.randf_range(-1.0, 1.0))
+
+	var mesh := MeshInstance3D.new()
+	mesh.mesh = build_enemy_ship_mesh()
+	mesh.material_override = make_line_material(Color(1.0, 0.46, 0.34))
+	enemy.add_child(mesh)
+
+	add_child(enemy)
+	enemy_nodes.append(enemy)
+
+
+func update_enemy_behavior(delta: float) -> void:
+	for i in range(enemy_nodes.size() - 1, -1, -1):
+		var enemy: Node3D = enemy_nodes[i]
+		if not is_instance_valid(enemy):
+			enemy_nodes.remove_at(i)
+			continue
+
+		var to_player := player.global_position - enemy.global_position
+		var distance := to_player.length()
+		var direction := to_player.normalized() if distance > 0.001 else Vector3.FORWARD
+		var lateral := Vector3(-direction.z, 0, direction.x) * float(enemy.get_meta("orbit_bias")) * 55.0
+		var desired_velocity := direction * 130.0 + lateral
+		if distance < 220.0:
+			desired_velocity = -direction * 110.0 + lateral
+
+		var velocity: Vector3 = enemy.get_meta("velocity")
+		velocity = velocity.lerp(desired_velocity, min(delta * 1.4, 1.0))
+		enemy.set_meta("velocity", velocity)
+		enemy.global_position += velocity * delta
+		if velocity.length() > 2.0:
+			enemy.look_at(enemy.global_position + velocity.normalized(), Vector3.UP, true)
+
+		var cooldown: float = enemy.get_meta("fire_cooldown")
+		cooldown = max(cooldown - delta, 0.0)
+		if distance <= ENEMY_FIRE_RADIUS and cooldown == 0.0 and not game_over_state:
+			spawn_projectile(enemy.global_position - enemy.global_basis.z * 6.0, direction * ENEMY_PROJECTILE_SPEED, false)
+			cooldown = 1.5
+		enemy.set_meta("fire_cooldown", cooldown)
+
+		if distance > ENEMY_ENGAGE_RADIUS * 2.6:
+			enemy.global_position = player.global_position - direction * ENEMY_ENGAGE_RADIUS
+
+		if distance < 18.0:
+			damage_player(ENEMY_CONTACT_DAMAGE, "Drone collision")
+			create_burst(enemy.global_position, Color(1.0, 0.48, 0.38))
+			enemy.queue_free()
+			enemy_nodes.remove_at(i)
+
+
+func spawn_projectile(origin: Vector3, velocity: Vector3, from_player: bool) -> void:
+	var projectile := Node3D.new()
+	projectile.name = "Pulse"
+	projectile.global_position = origin
+	projectile.set_meta("velocity", velocity)
+	projectile.set_meta("from_player", from_player)
+	projectile.set_meta("life", 0.0)
+
+	var mesh := MeshInstance3D.new()
+	mesh.mesh = build_projectile_mesh()
+	mesh.material_override = make_line_material(Color(0.55, 0.95, 1.0) if from_player else Color(1.0, 0.54, 0.42))
+	projectile.add_child(mesh)
+
+	add_child(projectile)
+	if from_player:
+		player_projectiles.append(projectile)
+	else:
+		enemy_projectiles.append(projectile)
+
+
+func update_projectiles(delta: float) -> void:
+	update_projectile_list(player_projectiles, delta, true)
+	update_projectile_list(enemy_projectiles, delta, false)
+
+
+func update_projectile_list(projectiles: Array, delta: float, from_player: bool) -> void:
+	for i in range(projectiles.size() - 1, -1, -1):
+		var projectile: Node3D = projectiles[i]
+		if not is_instance_valid(projectile):
+			projectiles.remove_at(i)
+			continue
+
+		var velocity: Vector3 = projectile.get_meta("velocity")
+		projectile.global_position += velocity * delta
+		projectile.look_at(projectile.global_position + velocity.normalized(), Vector3.UP, true)
+
+		var lifetime: float = projectile.get_meta("life") + delta
+		projectile.set_meta("life", lifetime)
+		if lifetime > 2.4 or projectile.global_position.length() > WORLD_LIMIT.length() * 1.1:
+			projectile.queue_free()
+			projectiles.remove_at(i)
+			continue
+
+		if from_player:
+			if handle_player_projectile_hit(projectile):
+				projectiles.remove_at(i)
+		else:
+			if handle_enemy_projectile_hit(projectile):
+				projectiles.remove_at(i)
+
+
+func handle_player_projectile_hit(projectile: Node3D) -> bool:
+	for i in range(enemy_nodes.size() - 1, -1, -1):
+		var enemy: Node3D = enemy_nodes[i]
+		if not is_instance_valid(enemy):
+			enemy_nodes.remove_at(i)
+			continue
+		if projectile.global_position.distance_to(enemy.global_position) <= 20.0:
+			var hull: float = enemy.get_meta("hull") - PLAYER_PROJECTILE_DAMAGE
+			enemy.set_meta("hull", hull)
+			create_burst(projectile.global_position, Color(0.68, 0.96, 1.0))
+			projectile.queue_free()
+			if hull <= 0.0:
+				kills += 1
+				score += 100
+				create_burst(enemy.global_position, Color(1.0, 0.56, 0.38))
+				enemy.queue_free()
+				enemy_nodes.remove_at(i)
+				set_alert("Drone down", 0.45)
+			return true
+	return false
+
+
+func handle_enemy_projectile_hit(projectile: Node3D) -> bool:
+	if projectile.global_position.distance_to(player.global_position) <= PLAYER_COLLISION_RADIUS + 4.0:
+		damage_player(ENEMY_PROJECTILE_DAMAGE, "Incoming fire")
+		create_burst(projectile.global_position, Color(1.0, 0.56, 0.42))
+		projectile.queue_free()
+		return true
+	return false
+
+
+func update_hazards(delta: float) -> void:
+	if game_over_state:
+		return
+	var star_distance: float = player.global_position.length()
+	if star_distance < STAR_DAMAGE_RADIUS:
+		var heat_scale: float = 1.0 - clamp((star_distance - STAR_RADIUS) / max(STAR_DAMAGE_RADIUS - STAR_RADIUS, 1.0), 0.0, 1.0)
+		damage_player(STAR_DAMAGE_PER_SECOND * heat_scale * delta, "Solar flare")
+
+	for body in planet_bodies:
+		var planet_node: Node3D = body["node"]
+		var ring_centered := player.global_position - planet_node.global_position
+		var ring_radius: float = body["radius"] + 54.0
+		var planar_distance: float = Vector2(ring_centered.x, ring_centered.z).length()
+		var ring_offset: float = abs(planar_distance - ring_radius)
+		if ring_offset <= DEBRIS_HAZARD_THICKNESS and abs(ring_centered.y) <= 28.0 and player.velocity.length() > 110.0:
+			damage_player(DEBRIS_DAMAGE_PER_SECOND * delta, "%s debris field" % body["name"])
+
+
+func damage_player(amount: float, reason: String) -> void:
+	if game_over_state:
+		return
+	shield_recharge_delay = SHIELD_RECHARGE_DELAY
+	if player_shields > 0.0:
+		var absorbed: float = min(player_shields, amount)
+		player_shields -= absorbed
+		amount -= absorbed
+	if amount > 0.0:
+		player_hull = max(player_hull - amount, 0.0)
+	create_burst(player.global_position, Color(1.0, 0.8, 0.46) if player_shields > 0.0 else Color(1.0, 0.4, 0.36))
+	set_alert(reason, 0.45)
+	if player_hull <= 0.0:
+		trigger_game_over(reason)
+
+
+func trigger_game_over(reason: String) -> void:
+	game_over_state = true
+	paused = true
+	title_label.text = "Ship Lost"
+	pause_label.visible = true
+	pause_label.text = "Ship Lost\n%s\nPress Enter to restart" % reason
+	update_status("Run ended.\nPress Enter to restart the patrol.")
+
+
+func create_burst(position: Vector3, color: Color) -> void:
+	var burst := MeshInstance3D.new()
+	burst.mesh = build_burst_mesh(8.0)
+	burst.material_override = make_line_material(color)
+	burst.global_position = position
+	burst.set_meta("life", 0.0)
+	add_child(burst)
+	transient_effects.append(burst)
+
+
+func update_effects(delta: float) -> void:
+	for i in range(transient_effects.size() - 1, -1, -1):
+		var effect: MeshInstance3D = transient_effects[i]
+		if not is_instance_valid(effect):
+			transient_effects.remove_at(i)
+			continue
+		var life: float = effect.get_meta("life") + delta
+		effect.set_meta("life", life)
+		effect.scale = Vector3.ONE * (1.0 + life * 3.2)
+		effect.rotate_y(delta * 2.8)
+		if life > 0.35:
+			effect.queue_free()
+			transient_effects.remove_at(i)
+
+
 func update_camera(delta: float) -> void:
 	var lead := player.velocity * CAMERA_VELOCITY_LEAD
 	var desired := player.global_position + CAMERA_OFFSET + lead
@@ -763,6 +1079,39 @@ func build_nav_beacon_mesh(radius: float) -> ArrayMesh:
 		Vector3(0, -radius, 0), Vector3(-radius * 0.5, 0, 0),
 		Vector3(-radius * 0.5, 0, 0), Vector3(0, radius, 0),
 		Vector3(0, 0, -radius * 0.7), Vector3(0, 0, radius * 0.7)
+	])
+	return build_line_mesh(vertices)
+
+
+func build_enemy_ship_mesh() -> ArrayMesh:
+	var vertices := PackedVector3Array([
+		Vector3(0, 0, -8), Vector3(5, 0, 4),
+		Vector3(5, 0, 4), Vector3(0, 2.6, 7),
+		Vector3(0, 2.6, 7), Vector3(-5, 0, 4),
+		Vector3(-5, 0, 4), Vector3(0, 0, -8),
+		Vector3(-7, 0, 1), Vector3(-2, 0, 4),
+		Vector3(7, 0, 1), Vector3(2, 0, 4),
+		Vector3(0, -2.2, 5), Vector3(0, 2.6, 7)
+	])
+	return build_line_mesh(vertices)
+
+
+func build_projectile_mesh() -> ArrayMesh:
+	var vertices := PackedVector3Array([
+		Vector3(0, 0, -2.8), Vector3(0, 0, 2.8),
+		Vector3(-0.8, 0, 1.4), Vector3(0.8, 0, 1.4),
+		Vector3(0, -0.8, 1.4), Vector3(0, 0.8, 1.4)
+	])
+	return build_line_mesh(vertices)
+
+
+func build_burst_mesh(radius: float) -> ArrayMesh:
+	var vertices := PackedVector3Array([
+		Vector3(-radius, 0, 0), Vector3(radius, 0, 0),
+		Vector3(0, -radius, 0), Vector3(0, radius, 0),
+		Vector3(0, 0, -radius), Vector3(0, 0, radius),
+		Vector3(-radius * 0.7, -radius * 0.7, 0), Vector3(radius * 0.7, radius * 0.7, 0),
+		Vector3(-radius * 0.7, radius * 0.7, 0), Vector3(radius * 0.7, -radius * 0.7, 0)
 	])
 	return build_line_mesh(vertices)
 
