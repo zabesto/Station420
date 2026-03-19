@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://whk1qleepnuc"
-path="res://.godot/imported/Station420.icon.png-97c94e6ed39e5a46e94f6a763ff81f5b.ctex"
+path="res://.godot/imported/index.icon.png-a9d2f4f7433eeddc29dad75f5e7f8710.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Station420.icon.png"
-dest_files=["res://.godot/imported/Station420.icon.png-97c94e6ed39e5a46e94f6a763ff81f5b.ctex"]
+source_file="res://build/web/index.icon.png"
+dest_files=["res://.godot/imported/index.icon.png-a9d2f4f7433eeddc29dad75f5e7f8710.ctex"]
 
 [params]
 

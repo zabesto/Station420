@@ -1,9 +1,9 @@
 extends Node3D
 
-const SYSTEM_SCALE := 1.75
-const STATION_SCALE := 2.6
+const SYSTEM_SCALE := 35.0
+const STATION_SCALE := 8.0
 const DESTROYER_SCALE := 3.4
-const WORLD_LIMIT := Vector3(8400, 1800, 8400)
+const WORLD_LIMIT := Vector3(120000, 18000, 120000)
 const CAMERA_OFFSET := Vector3(0, 132, 290)
 const CAMERA_VELOCITY_LEAD := 0.24
 const CAMERA_MIN_DISTANCE := 72.0
@@ -11,7 +11,7 @@ const CAMERA_MAX_DISTANCE := 420.0
 const CAMERA_MOUSE_SENSITIVITY := 0.005
 const FIRST_PERSON_MOUSE_SENSITIVITY := 0.0028
 const STAR_MASS := 1900000.0
-const STAR_RADIUS := 160.0
+const STAR_RADIUS := 3200.0
 const SHIP_GRAVITY_SCALE := 0.32
 const GRAVITY_CONSTANT := 2.4
 const GRAVITY_SOFTENING := 1200.0
@@ -21,11 +21,16 @@ const ENEMY_PROJECTILE_SPEED := 420.0
 const ENEMY_RESPAWN_TIME := 6.0
 const ENEMY_ENGAGE_RADIUS := 1400.0
 const ENEMY_FIRE_RADIUS := 840.0
+const ENEMY_FIELD_SPAWN_MIN_DISTANCE := 1800.0
+const ENEMY_FIELD_RESPAWN_MIN_DISTANCE := 1200.0
+const ENEMY_AMBUSH_WAKE_RADIUS := 900.0
+const ENEMY_FIELD_PATROL_RADIUS := 82.0
+const ENEMY_FIELD_PATROL_SPEED := 68.0
 const PLAYER_MAX_HULL := 100.0
 const PLAYER_MAX_SHIELDS := 100.0
 const SHIELD_RECHARGE_RATE := 10.0
 const SHIELD_RECHARGE_DELAY := 2.6
-const STAR_DAMAGE_RADIUS := 360.0
+const STAR_DAMAGE_RADIUS := 7200.0
 const STAR_DAMAGE_PER_SECOND := 34.0
 const DEBRIS_HAZARD_THICKNESS := 26.0
 const DEBRIS_DAMAGE_PER_SECOND := 11.0
@@ -36,9 +41,9 @@ const ENEMY_CONTACT_DAMAGE := 24.0
 const PLAYER_FIRE_RANGE := 1800.0
 const ENEMY_SPAWN_COUNT := 4
 const PLAYER_COLLISION_RADIUS := 9.0
-const PLANET_COLLISION_MARGIN := 18.0
-const STAR_COLLISION_MARGIN := 34.0
-const STATION_COLLISION_RADIUS := 26.0
+const PLANET_COLLISION_MARGIN := 120.0
+const STAR_COLLISION_MARGIN := 320.0
+const STATION_COLLISION_RADIUS := 120.0
 const AUDIO_MIX_RATE := 22050.0
 const MUSIC_BUFFER_SECONDS := 0.35
 
@@ -86,20 +91,18 @@ const PLANET_LAYOUT := [
 ]
 
 const STATION_LAYOUT := [
-	{"name": "Orion Gate", "planet": "Nereid", "offset": Vector3(110, 30, 24)},
-	{"name": "Lattice Port", "planet": "Nereid", "offset": Vector3(-140, -18, -42)},
-	{"name": "Vela Port", "planet": "Cinder", "offset": Vector3(128, 22, 74)},
-	{"name": "Mirage Ring", "planet": "Cinder", "offset": Vector3(-116, 36, -102)},
-	{"name": "Cygnus Hub", "planet": "Morrow", "offset": Vector3(154, -24, -36)},
-	{"name": "Kestrel Dock", "planet": "Morrow", "offset": Vector3(-168, 44, 118)},
-	{"name": "Argo Spindle", "planet": "Aster", "offset": Vector3(176, 28, -132)},
-	{"name": "Juniper Array", "planet": "Aster", "offset": Vector3(-188, -32, 96)}
+	{"name": "Orion Gate", "planet": "Nereid", "offset": Vector3(260, 56, 120)},
+	{"name": "Vela Port", "planet": "Cinder", "offset": Vector3(-340, 84, -210)},
+	{"name": "Cygnus Hub", "planet": "Morrow", "offset": Vector3(420, -72, 180)},
+	{"name": "Argo Spindle", "planet": "Aster", "offset": Vector3(-520, 96, -260)}
 ]
 
 @onready var player: CharacterBody3D = $Player
 @onready var player_visual: MeshInstance3D = $Player/Visual
 @onready var camera: Camera3D = $Camera3D
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
+@onready var blur_pass: ColorRect = $CanvasLayer/BlurPass
+@onready var edge_pass: ColorRect = $CanvasLayer/EdgePass
 @onready var title_label: Label = $CanvasLayer/HUD/TitleLabel
 @onready var dock_label: Label = $CanvasLayer/HUD/DockLabel
 @onready var cargo_label: Label = $CanvasLayer/HUD/CargoLabel
@@ -108,8 +111,15 @@ const STATION_LAYOUT := [
 @onready var message_label: Label = $CanvasLayer/HUD/MessageLabel
 @onready var combat_label: Label = $CanvasLayer/HUD/CombatLabel
 @onready var alert_label: Label = $CanvasLayer/HUD/AlertLabel
+@onready var pause_card: Panel = $CanvasLayer/HUD/PauseCard
 @onready var pause_label: Label = $CanvasLayer/HUD/PauseLabel
+@onready var start_card: Panel = $CanvasLayer/HUD/StartCard
 @onready var start_label: Label = $CanvasLayer/HUD/StartLabel
+@onready var start_sub_label: Label = $CanvasLayer/HUD/StartSubLabel
+@onready var start_status_label: Label = $CanvasLayer/HUD/StartStatusLabel
+@onready var start_progress_frame: Panel = $CanvasLayer/HUD/StartProgressFrame
+@onready var start_progress_bar: ProgressBar = $CanvasLayer/HUD/StartProgressFrame/StartProgressBar
+@onready var start_hint_label: Label = $CanvasLayer/HUD/StartHintLabel
 @onready var hit_label: Label = $CanvasLayer/HUD/HitLabel
 @onready var top_frame: Panel = $CanvasLayer/HUD/TopFrame
 @onready var left_frame: Panel = $CanvasLayer/HUD/LeftFrame
@@ -128,9 +138,19 @@ const STATION_LAYOUT := [
 @onready var settings_panel: Panel = $CanvasLayer/HUD/SettingsPanel
 @onready var settings_title: Label = $CanvasLayer/HUD/SettingsPanel/SettingsTitle
 @onready var preset_value: Label = $CanvasLayer/HUD/SettingsPanel/PresetValue
+@onready var preset_prev_button: Button = $CanvasLayer/HUD/SettingsPanel/PresetPrevButton
+@onready var preset_next_button: Button = $CanvasLayer/HUD/SettingsPanel/PresetNextButton
+@onready var render_mode_button: Button = $CanvasLayer/HUD/SettingsPanel/RenderModeButton
 @onready var bloom_value: Label = $CanvasLayer/HUD/SettingsPanel/BloomValue
+@onready var bloom_button: Button = $CanvasLayer/HUD/SettingsPanel/BloomButton
 @onready var music_value: Label = $CanvasLayer/HUD/SettingsPanel/MusicValue
+@onready var music_button: Button = $CanvasLayer/HUD/SettingsPanel/MusicButton
 @onready var sfx_value: Label = $CanvasLayer/HUD/SettingsPanel/SfxValue
+@onready var sfx_button: Button = $CanvasLayer/HUD/SettingsPanel/SfxButton
+@onready var trail_value: Label = $CanvasLayer/HUD/SettingsPanel/TrailValue
+@onready var trail_button: Button = $CanvasLayer/HUD/SettingsPanel/TrailButton
+@onready var guidance_value: Label = $CanvasLayer/HUD/SettingsPanel/GuidanceValue
+@onready var guidance_button: Button = $CanvasLayer/HUD/SettingsPanel/GuidanceButton
 @onready var settings_hint: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHint
 @onready var settings_hotkeys: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHotkeys
 
@@ -144,7 +164,9 @@ var cargo_loaded := false
 var objective_line: MeshInstance3D
 var objective_marker: MeshInstance3D
 var objective_flash_time := 0.0
+var objective_guidance_enabled := false
 var star_node: Node3D
+var sunlight: DirectionalLight3D
 var planet_bodies := []
 var planet_nodes_by_name := {}
 var world_root: Node3D
@@ -173,13 +195,15 @@ var hit_timer := 0.0
 var paused := false
 var game_over_state := false
 var start_screen_active := true
+var boot_screen_time := 0.0
 var settings_visible := false
 var visual_preset_index := 0
+var shaded_mode := false
 var bloom_enabled := true
 var music_enabled := true
 var sfx_enabled := true
 var camera_mode := 0
-var orbit_distance := CAMERA_OFFSET.length()
+var orbit_distance := 92.0
 var orbit_pitch := -0.32
 var orbit_yaw := 0.0
 var orbit_dragging := false
@@ -194,7 +218,9 @@ func _ready() -> void:
 	player.call("set_world_limit", WORLD_LIMIT)
 	alert_label.text = ""
 	hit_label.text = ""
+	pause_card.visible = false
 	pause_label.visible = false
+	start_card.visible = true
 	start_label.visible = true
 	settings_panel.visible = false
 	dock_label.visible = false
@@ -207,6 +233,8 @@ func _ready() -> void:
 	hit_label.visible = false
 	if DisplayServer.get_name() != "headless":
 		setup_audio()
+	setup_blur_pass()
+	setup_edge_pass()
 	setup_visual_environment()
 	create_starfield()
 	create_star()
@@ -221,16 +249,35 @@ func _ready() -> void:
 
 	player.global_position = get_random_safe_start_position()
 	apply_visual_preset()
+	connect_settings_controls()
 
 	paused = true
 	title_label.text = "Station420"
 	update_combat_label()
 	update_settings_label()
-	update_status("Press Enter to launch.\nUse Space to fire and Esc to pause once you are underway.")
+	update_status("Press Enter to launch.\nMouse steers. Use Space to fire and Esc to pause once you are underway.")
 	update_mouse_mode()
 
 
+func _exit_tree() -> void:
+	if music_player != null:
+		music_player.stop()
+	music_playback = null
+
+
+func connect_settings_controls() -> void:
+	preset_prev_button.pressed.connect(_on_preset_prev_pressed)
+	preset_next_button.pressed.connect(_on_preset_next_pressed)
+	render_mode_button.pressed.connect(_on_render_mode_pressed)
+	bloom_button.pressed.connect(_on_bloom_pressed)
+	music_button.pressed.connect(_on_music_pressed)
+	sfx_button.pressed.connect(_on_sfx_pressed)
+	trail_button.pressed.connect(_on_trail_pressed)
+	guidance_button.pressed.connect(_on_guidance_pressed)
+
+
 func _process(delta: float) -> void:
+	update_boot_screen(delta)
 	update_music_stream()
 	update_alert(delta)
 	update_hit_feedback(delta)
@@ -311,10 +358,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_camera_mode()
 		return
 
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_U:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
 		settings_visible = not settings_visible
 		settings_panel.visible = settings_visible
 		update_mouse_mode()
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_BACKSLASH:
+		toggle_shaded_mode()
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -331,37 +382,36 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_visual_preset(3)
 			return
 		if event.keycode == KEY_B:
-			bloom_enabled = not bloom_enabled
-			apply_visual_preset()
+			toggle_bloom()
 			return
 		if event.keycode == KEY_M:
-			music_enabled = not music_enabled
-			update_music_state()
+			toggle_music()
 			return
 		if event.keycode == KEY_N:
-			sfx_enabled = not sfx_enabled
+			toggle_sfx()
+			return
+		if event.keycode == KEY_T:
+			toggle_trail()
+			return
+		if event.keycode == KEY_G:
+			toggle_guidance()
 			return
 
 	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_RIGHT:
-			orbit_dragging = event.pressed and camera_mode == 0 and not paused and not settings_visible and not start_screen_active
-			update_mouse_mode()
-			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed and camera_mode == 0:
-			orbit_distance = clamp(orbit_distance - 18.0, CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
+			orbit_distance = clamp(orbit_distance - 10.0, CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed and camera_mode == 0:
-			orbit_distance = clamp(orbit_distance + 18.0, CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
+			orbit_distance = clamp(orbit_distance + 10.0, CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
 			return
 
 	if event is InputEventMouseMotion:
-		if camera_mode == 1 and not paused and not settings_visible and not start_screen_active:
-			first_person_yaw -= event.relative.x * FIRST_PERSON_MOUSE_SENSITIVITY
-			first_person_pitch = clamp(first_person_pitch - event.relative.y * FIRST_PERSON_MOUSE_SENSITIVITY, -0.85, 0.85)
-			return
-		if orbit_dragging:
-			orbit_yaw -= event.relative.x * CAMERA_MOUSE_SENSITIVITY
-			orbit_pitch = clamp(orbit_pitch - event.relative.y * CAMERA_MOUSE_SENSITIVITY, -1.2, -0.08)
+		if not paused and not settings_visible and not start_screen_active:
+			player.call(
+				"apply_look_input",
+				event.relative.x,
+				event.relative.y
+			)
 			return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and start_screen_active:
@@ -400,13 +450,13 @@ func create_starfield() -> void:
 
 	var far_stars := MeshInstance3D.new()
 	far_stars.name = "FarStars"
-	far_stars.mesh = build_star_mesh(420, WORLD_LIMIT, 0.45, 2.0)
+	far_stars.mesh = build_star_mesh(3200, WORLD_LIMIT * 2.2, 0.35, 1.9)
 	register_style_mesh(far_stars, "ambient", Color(0.82, 0.9, 1.0))
 	add_child(far_stars)
 
 	var mid_stars := MeshInstance3D.new()
 	mid_stars.name = "MidStars"
-	mid_stars.mesh = build_star_mesh(180, WORLD_LIMIT * 0.72, 1.2, 3.4)
+	mid_stars.mesh = build_star_mesh(1400, WORLD_LIMIT * 1.45, 0.8, 2.8)
 	register_style_mesh(mid_stars, "ambient", Color(0.46, 0.88, 1.0))
 	add_child(mid_stars)
 
@@ -425,8 +475,15 @@ func create_star() -> void:
 
 	var star_mesh := MeshInstance3D.new()
 	star_mesh.mesh = build_planet_mesh(STAR_RADIUS)
+	mark_mesh_wireframe_only(star_mesh)
 	register_style_mesh(star_mesh, "danger", Color(1.0, 0.84, 0.28))
 	star_node.add_child(star_mesh)
+
+	var star_solid := MeshInstance3D.new()
+	star_solid.mesh = build_planet_solid_mesh(STAR_RADIUS)
+	mark_mesh_solid_only(star_solid)
+	register_style_mesh(star_solid, "danger", Color(1.0, 0.84, 0.28))
+	star_node.add_child(star_solid)
 
 	var star_halo := MeshInstance3D.new()
 	star_halo.mesh = build_ring_mesh(STAR_RADIUS * 1.5, 48)
@@ -441,6 +498,19 @@ func create_star() -> void:
 	star_label.no_depth_test = true
 	register_style_label(star_label, "label", Color(1.0, 0.88, 0.52))
 	star_node.add_child(star_label)
+
+	sunlight = DirectionalLight3D.new()
+	sunlight.name = "Sunlight"
+	sunlight.light_color = Color(1.0, 0.94, 0.82)
+	sunlight.light_energy = 1.8
+	sunlight.shadow_enabled = true
+	sunlight.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sunlight.directional_shadow_max_distance = 220000.0
+	sunlight.directional_shadow_split_1 = 0.06
+	sunlight.directional_shadow_split_2 = 0.18
+	sunlight.directional_shadow_split_3 = 0.42
+	sunlight.rotation = Vector3(deg_to_rad(-36.0), deg_to_rad(28.0), 0.0)
+	add_child(sunlight)
 
 
 func create_planets() -> void:
@@ -463,8 +533,15 @@ func create_planets() -> void:
 
 		var planet_mesh := MeshInstance3D.new()
 		planet_mesh.mesh = build_planet_mesh(planet_radius)
+		mark_mesh_wireframe_only(planet_mesh)
 		register_style_mesh(planet_mesh, "planet", planet_data["color"])
 		root.add_child(planet_mesh)
+
+		var planet_solid := MeshInstance3D.new()
+		planet_solid.mesh = build_planet_solid_mesh(planet_radius)
+		mark_mesh_solid_only(planet_solid)
+		register_style_mesh(planet_solid, "planet", planet_data["color"])
+		root.add_child(planet_solid)
 
 		var orbit_ring := MeshInstance3D.new()
 		orbit_ring.mesh = build_ring_mesh(orbit_radius, 96)
@@ -519,7 +596,7 @@ func create_stations() -> void:
 		station.collision_mask = 1
 		station.set_meta("station_name", station_data["name"])
 		station.set_meta("planet_name", station_data["planet"])
-		station.set_meta("dock_offset", Vector3(0, 0, 42))
+		station.set_meta("dock_offset", Vector3(0, 0, 220))
 		station.set_meta("collision_radius", STATION_COLLISION_RADIUS)
 		station.set_meta("spin_speed", randf_range(0.12, 0.28))
 		station.body_entered.connect(_on_station_body_entered.bind(station))
@@ -534,17 +611,24 @@ func create_stations() -> void:
 
 		var wireframe := MeshInstance3D.new()
 		wireframe.mesh = build_station_mesh(22.0 * STATION_SCALE)
+		mark_mesh_wireframe_only(wireframe)
 		register_style_mesh(wireframe, "station", Color(1.0, 0.72, 0.34))
 		station.add_child(wireframe)
 
+		var station_solid := MeshInstance3D.new()
+		station_solid.mesh = build_station_solid_mesh(22.0 * STATION_SCALE)
+		mark_mesh_solid_only(station_solid)
+		register_style_mesh(station_solid, "station", Color(1.0, 0.72, 0.34))
+		station.add_child(station_solid)
+
 		var dock_marker := MeshInstance3D.new()
-		dock_marker.position = Vector3(0, 0, 42)
-		dock_marker.mesh = build_dock_marker_mesh(7.4)
+		dock_marker.position = Vector3(0, 0, 220)
+		dock_marker.mesh = build_dock_marker_mesh(24.0)
 		register_style_mesh(dock_marker, "dock", Color(0.55, 1.0, 0.85))
 		station.add_child(dock_marker)
 
 		var station_label := Label3D.new()
-		station_label.position = Vector3(0, 34.0, 0)
+		station_label.position = Vector3(0, 180.0, 0)
 		station_label.text = station_data["name"]
 		station_label.font_size = 36
 		station_label.no_depth_test = true
@@ -620,8 +704,15 @@ func create_destroyer_fleet() -> void:
 
 		var mesh := MeshInstance3D.new()
 		mesh.mesh = build_destroyer_mesh(42.0 * DESTROYER_SCALE)
+		mark_mesh_wireframe_only(mesh)
 		register_style_mesh(mesh, "station", Color(0.74, 0.88, 1.0))
 		destroyer.add_child(mesh)
+
+		var solid_mesh := MeshInstance3D.new()
+		solid_mesh.mesh = build_destroyer_solid_mesh(42.0 * DESTROYER_SCALE)
+		mark_mesh_solid_only(solid_mesh)
+		register_style_mesh(solid_mesh, "station", Color(0.74, 0.88, 1.0))
+		destroyer.add_child(solid_mesh)
 
 		var label := Label3D.new()
 		label.text = destroyer_data["name"]
@@ -830,7 +921,78 @@ func setup_visual_environment() -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ssao_enabled = false
 	world_environment.environment = environment
+
+
+func setup_edge_pass() -> void:
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+
+uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
+uniform float threshold = 0.22;
+uniform float strength = 1.1;
+uniform float darken = 0.18;
+
+float luminance(vec3 color) {
+	return dot(color, vec3(0.299, 0.587, 0.114));
+}
+
+void fragment() {
+	vec2 px = SCREEN_PIXEL_SIZE;
+	float tl = luminance(textureLod(screen_texture, SCREEN_UV + vec2(-px.x, -px.y), 0.0).rgb);
+	float  t = luminance(textureLod(screen_texture, SCREEN_UV + vec2(0.0, -px.y), 0.0).rgb);
+	float tr = luminance(textureLod(screen_texture, SCREEN_UV + vec2(px.x, -px.y), 0.0).rgb);
+	float  l = luminance(textureLod(screen_texture, SCREEN_UV + vec2(-px.x, 0.0), 0.0).rgb);
+	float  r = luminance(textureLod(screen_texture, SCREEN_UV + vec2(px.x, 0.0), 0.0).rgb);
+	float bl = luminance(textureLod(screen_texture, SCREEN_UV + vec2(-px.x, px.y), 0.0).rgb);
+	float  b = luminance(textureLod(screen_texture, SCREEN_UV + vec2(0.0, px.y), 0.0).rgb);
+	float br = luminance(textureLod(screen_texture, SCREEN_UV + vec2(px.x, px.y), 0.0).rgb);
+
+	float gx = -tl - 2.0 * l - bl + tr + 2.0 * r + br;
+	float gy = -tl - 2.0 * t - tr + bl + 2.0 * b + br;
+	float edge = smoothstep(threshold, threshold + 0.24, length(vec2(gx, gy)) * strength);
+
+	vec3 scene = textureLod(screen_texture, SCREEN_UV, 0.0).rgb;
+	COLOR = vec4(scene * (1.0 - edge * darken), 1.0);
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	edge_pass.material = material
+	edge_pass.visible = shaded_mode
+
+
+func setup_blur_pass() -> void:
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+
+uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
+uniform float blur_scale = 2.0;
+uniform vec4 tint : source_color = vec4(0.02, 0.02, 0.025, 0.14);
+
+void fragment() {
+	vec2 px = SCREEN_PIXEL_SIZE * blur_scale;
+	vec3 color = vec3(0.0);
+	color += textureLod(screen_texture, SCREEN_UV + vec2(-2.0, 0.0) * px, 0.0).rgb * 0.08;
+	color += textureLod(screen_texture, SCREEN_UV + vec2(-1.0, -1.0) * px, 0.0).rgb * 0.09;
+	color += textureLod(screen_texture, SCREEN_UV + vec2(-1.0, 1.0) * px, 0.0).rgb * 0.09;
+	color += textureLod(screen_texture, SCREEN_UV + vec2(0.0, -2.0) * px, 0.0).rgb * 0.08;
+	color += textureLod(screen_texture, SCREEN_UV, 0.0).rgb * 0.32;
+	color += textureLod(screen_texture, SCREEN_UV + vec2(0.0, 2.0) * px, 0.0).rgb * 0.08;
+	color += textureLod(screen_texture, SCREEN_UV + vec2(1.0, -1.0) * px, 0.0).rgb * 0.09;
+	color += textureLod(screen_texture, SCREEN_UV + vec2(1.0, 1.0) * px, 0.0).rgb * 0.09;
+	color += textureLod(screen_texture, SCREEN_UV + vec2(2.0, 0.0) * px, 0.0).rgb * 0.08;
+	color = mix(color, tint.rgb, tint.a);
+	COLOR = vec4(color, 1.0);
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	blur_pass.material = material
+	blur_pass.visible = start_screen_active
 
 
 func get_preset_name(index: int) -> String:
@@ -850,43 +1012,54 @@ func set_visual_preset(index: int) -> void:
 	apply_visual_preset()
 
 
+func toggle_shaded_mode() -> void:
+	shaded_mode = not shaded_mode
+	apply_visual_preset()
+	set_alert("Render mode: %s" % ("shaded" if shaded_mode else "wireframe"), 0.45)
+
+
 func apply_visual_preset() -> void:
 	if world_environment.environment == null:
 		setup_visual_environment()
+	edge_pass.visible = shaded_mode
 	var environment := world_environment.environment
 	match visual_preset_index:
 		1:
 			environment.background_color = Color(0.05, 0.07, 0.12)
 			environment.ambient_light_color = Color(0.42, 0.84, 1.0)
-			environment.ambient_light_energy = 0.62
+			environment.ambient_light_energy = 0.45
 			environment.fog_enabled = true
 			environment.fog_light_color = Color(0.18, 0.54, 0.88)
-			environment.fog_density = 0.00075
+			environment.fog_density = 0.000008
 		2:
 			environment.background_color = Color(0.08, 0.07, 0.09)
 			environment.ambient_light_color = Color(0.95, 0.78, 0.58)
-			environment.ambient_light_energy = 0.75
+			environment.ambient_light_energy = 0.5
 			environment.fog_enabled = true
 			environment.fog_light_color = Color(0.46, 0.34, 0.22)
-			environment.fog_density = 0.00095
+			environment.fog_density = 0.000009
 		3:
 			environment.background_color = Color(0.03, 0.12, 0.12)
 			environment.ambient_light_color = Color(0.34, 0.95, 0.82)
-			environment.ambient_light_energy = 0.58
+			environment.ambient_light_energy = 0.42
 			environment.fog_enabled = true
 			environment.fog_light_color = Color(0.1, 0.66, 0.62)
-			environment.fog_density = 0.0006
+			environment.fog_density = 0.000007
 		_:
-			environment.background_color = Color.BLACK
-			environment.ambient_light_color = Color(0.72, 0.8, 0.92)
-			environment.ambient_light_energy = 0.28
+			environment.background_color = Color(0.005, 0.008, 0.014)
+			environment.ambient_light_color = Color(0.46, 0.52, 0.62)
+			environment.ambient_light_energy = 0.38
 			environment.fog_enabled = false
 
 	environment.glow_enabled = bloom_enabled
 	environment.glow_intensity = 0.78 if bloom_enabled else 0.0
 	environment.glow_strength = 0.95 if bloom_enabled else 0.0
 	environment.glow_bloom = 0.18 if bloom_enabled else 0.0
-	environment.tonemap_exposure = 1.1 if visual_preset_index == 1 else 1.0
+	environment.tonemap_exposure = 1.18 if shaded_mode else (1.1 if visual_preset_index == 1 else 1.0)
+
+	if sunlight != null:
+		sunlight.visible = shaded_mode
+		sunlight.light_energy = 1.85 if shaded_mode else 0.0
 
 	for node in get_tree().get_nodes_in_group("style_mesh"):
 		apply_mesh_style(node)
@@ -904,6 +1077,14 @@ func register_style_mesh(mesh: MeshInstance3D, role: String, base_color: Color) 
 	apply_mesh_style(mesh)
 
 
+func mark_mesh_wireframe_only(mesh: MeshInstance3D) -> void:
+	mesh.set_meta("render_variant", "wire")
+
+
+func mark_mesh_solid_only(mesh: MeshInstance3D) -> void:
+	mesh.set_meta("render_variant", "solid")
+
+
 func register_style_label(label: Label3D, role: String, base_color: Color = Color.WHITE) -> void:
 	label.set_meta("style_role", role)
 	label.set_meta("style_base_color", base_color)
@@ -915,6 +1096,12 @@ func register_style_label(label: Label3D, role: String, base_color: Color = Colo
 func apply_mesh_style(mesh: MeshInstance3D) -> void:
 	var role := str(mesh.get_meta("style_role", "world"))
 	var base_color: Color = mesh.get_meta("style_base_color", Color.WHITE)
+	var render_variant := str(mesh.get_meta("render_variant", "both"))
+	mesh.visible = true
+	if render_variant == "solid":
+		mesh.visible = shaded_mode
+	elif render_variant == "wire":
+		mesh.visible = not shaded_mode
 	mesh.material_override = build_style_material(role, base_color)
 
 
@@ -927,13 +1114,21 @@ func apply_label_style(label: Label3D) -> void:
 func build_style_material(role: String, base_color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	var color := resolve_style_color(role, base_color)
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.albedo_color = color
-	material.emission_enabled = true
-	material.emission = color
+	if shaded_mode:
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		material.roughness = 0.28 if role in ["station", "player", "enemy", "target"] else 0.54
+		material.metallic = 0.42 if role in ["station", "player", "enemy"] else 0.08
+		material.emission_enabled = role in ["danger", "objective", "dock", "target", "enemy"]
+		if material.emission_enabled:
+			material.emission = color * 0.35
+	else:
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.emission_enabled = true
+		material.emission = color
 	if visual_preset_index == 3 and role not in ["enemy", "danger"]:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		material.albedo_color.a = 0.58
+		material.albedo_color.a = 0.72 if shaded_mode else 0.58
 	return material
 
 
@@ -975,7 +1170,12 @@ func quantize_color(color: Color, step: float) -> Color:
 
 
 func apply_player_style() -> void:
+	mark_mesh_wireframe_only(player_visual)
 	register_style_mesh(player_visual, "player", Color(0.45, 0.88, 1.0))
+	var hull_solid := player_visual.get_node_or_null("HullSolid")
+	if hull_solid is MeshInstance3D:
+		mark_mesh_solid_only(hull_solid)
+		register_style_mesh(hull_solid, "player", Color(0.45, 0.88, 1.0))
 	var engine_glow := player_visual.get_node_or_null("EngineGlow")
 	if engine_glow is MeshInstance3D:
 		register_style_mesh(engine_glow, "objective", Color(0.5, 0.95, 1.0))
@@ -1027,6 +1227,9 @@ func apply_hud_style() -> void:
 	reticle.modulate = accent_color
 	pause_label.modulate = accent_color
 	start_label.modulate = accent_color
+	start_sub_label.modulate = hud_color
+	start_status_label.modulate = hud_color
+	start_hint_label.modulate = accent_color
 	settings_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.95)
 	settings_title.modulate = accent_color
 	preset_value.modulate = hud_color
@@ -1035,6 +1238,9 @@ func apply_hud_style() -> void:
 	sfx_value.modulate = hud_color
 	settings_hint.modulate = accent_color
 	settings_hotkeys.modulate = hud_color
+	start_progress_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.84), accent_color, 10))
+	start_progress_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.08, 0.11, 0.16, 0.96), hud_color.darkened(0.55)))
+	start_progress_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(hud_color.r * 0.78, hud_color.g * 0.96, 1.0, 0.98), accent_color))
 
 
 func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Color) -> void:
@@ -1043,6 +1249,8 @@ func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Colo
 	right_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.76), accent_color, 20))
 	message_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.8), hud_color, 18))
 	settings_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.88), accent_color, 16))
+	pause_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), alert_color, 24))
+	start_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 28))
 
 	hull_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.1, 0.13, 0.18, 0.92), hud_color.darkened(0.55)))
 	hull_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(alert_color.r, alert_color.g * 0.85, alert_color.b * 0.85, 0.98), accent_color))
@@ -1080,11 +1288,75 @@ func make_bar_stylebox(background: Color, border: Color) -> StyleBoxFlat:
 	return style
 
 
+func _on_preset_prev_pressed() -> void:
+	set_visual_preset((visual_preset_index + 3) % 4)
+
+
+func _on_preset_next_pressed() -> void:
+	set_visual_preset((visual_preset_index + 1) % 4)
+
+
+func _on_render_mode_pressed() -> void:
+	toggle_shaded_mode()
+
+
+func _on_bloom_pressed() -> void:
+	toggle_bloom()
+
+
+func _on_music_pressed() -> void:
+	toggle_music()
+
+
+func _on_sfx_pressed() -> void:
+	toggle_sfx()
+
+
+func _on_trail_pressed() -> void:
+	toggle_trail()
+
+
+func _on_guidance_pressed() -> void:
+	toggle_guidance()
+
+
+func toggle_bloom() -> void:
+	bloom_enabled = not bloom_enabled
+	apply_visual_preset()
+
+
+func toggle_music() -> void:
+	music_enabled = not music_enabled
+	update_music_state()
+
+
+func toggle_sfx() -> void:
+	sfx_enabled = not sfx_enabled
+
+
+func toggle_trail() -> void:
+	var trail_enabled: bool = player.call("toggle_motion_trail")
+	set_alert("Motion trail: %s" % ("on" if trail_enabled else "off"), 0.45)
+
+
+func toggle_guidance() -> void:
+	objective_guidance_enabled = not objective_guidance_enabled
+	set_alert("Guidance line: %s" % ("on" if objective_guidance_enabled else "off"), 0.45)
+
+
 func update_settings_label() -> void:
-	preset_value.text = "Preset: %s" % get_preset_name(visual_preset_index)
+	preset_value.text = "Preset: %s / %s" % [get_preset_name(visual_preset_index), "Shaded" if shaded_mode else "Wireframe"]
 	bloom_value.text = "Bloom: %s" % ("On" if bloom_enabled else "Off")
 	music_value.text = "Music: %s" % ("On" if music_enabled else "Off")
 	sfx_value.text = "SFX: %s" % ("On" if sfx_enabled else "Off")
+	trail_value.text = "Trail: %s" % ("On" if bool(player.get("trail_enabled")) else "Off")
+	guidance_value.text = "Guidance: %s" % ("On" if objective_guidance_enabled else "Off")
+	render_mode_button.text = "Mode: %s" % ("Shaded" if shaded_mode else "Wire")
+	bloom_button.text = "Bloom: %s" % ("On" if bloom_enabled else "Off")
+	music_button.text = "Music: %s" % ("On" if music_enabled else "Off")
+	sfx_button.text = "SFX: %s" % ("On" if sfx_enabled else "Off")
+	trail_button.text = "Trail: %s" % ("On" if bool(player.get("trail_enabled")) else "Off")
+	guidance_button.text = "Guide: %s" % ("On" if objective_guidance_enabled else "Off")
 
 
 func update_hit_feedback(delta: float) -> void:
@@ -1103,10 +1375,16 @@ func show_hit_feedback(message: String) -> void:
 
 func start_run() -> void:
 	start_screen_active = false
+	blur_pass.visible = false
+	start_card.visible = false
 	start_label.visible = false
+	start_sub_label.visible = false
+	start_status_label.visible = false
+	start_progress_frame.visible = false
+	start_hint_label.visible = false
 	paused = false
 	title_label.text = "Wireframe System"
-	update_status("Launch confirmed.\nRun cargo, avoid hazards, and clear hostile drones.")
+	update_status("Launch confirmed.\nHostile drones are still buried in the debris fields. Use the opening to scout the system.")
 	update_mouse_mode()
 
 
@@ -1114,6 +1392,7 @@ func toggle_pause() -> void:
 	if game_over_state or start_screen_active:
 		return
 	paused = not paused
+	pause_card.visible = paused
 	pause_label.visible = paused
 	if paused:
 		pause_label.text = "Paused\nPress Esc to resume"
@@ -1121,6 +1400,25 @@ func toggle_pause() -> void:
 	else:
 		title_label.text = "Wireframe System"
 	update_mouse_mode()
+
+
+func update_boot_screen(delta: float) -> void:
+	if not start_screen_active:
+		return
+	blur_pass.visible = true
+	boot_screen_time += delta
+	var progress: float = min(18.0 + boot_screen_time * 32.0, 100.0)
+	start_progress_bar.value = progress
+	if progress < 34.0:
+		start_status_label.text = "Booting navigation mesh..."
+	elif progress < 58.0:
+		start_status_label.text = "Synchronizing orbital traffic lattice..."
+	elif progress < 82.0:
+		start_status_label.text = "Charging flight surfaces and weapon buses..."
+	elif progress < 100.0:
+		start_status_label.text = "Locking cockpit telemetry..."
+	else:
+		start_status_label.text = "Grid online. Press Enter or A to launch."
 
 
 func toggle_camera_mode() -> void:
@@ -1138,10 +1436,7 @@ func update_mouse_mode() -> void:
 	if paused or start_screen_active or settings_visible:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		return
-	if camera_mode == 1 or orbit_dragging:
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-		return
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 
 func update_combat_label() -> void:
@@ -1187,7 +1482,7 @@ func try_fire_player_projectile() -> void:
 
 func spawn_initial_enemies() -> void:
 	for i in range(ENEMY_SPAWN_COUNT):
-		spawn_enemy()
+		spawn_enemy(true)
 
 
 func maybe_spawn_enemies(delta: float) -> void:
@@ -1202,12 +1497,11 @@ func maybe_spawn_enemies(delta: float) -> void:
 		spawn_enemy()
 
 
-func spawn_enemy() -> void:
+func spawn_enemy(initial_wave: bool = false) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
-	var radial := Vector3(rng.randf_range(-1.0, 1.0), rng.randf_range(-0.2, 0.2), rng.randf_range(-1.0, 1.0)).normalized()
-	var tangent := Vector3(-radial.z, 0, radial.x).normalized()
-	var spawn_position := player.global_position + radial * rng.randf_range(340.0, 620.0) + tangent * rng.randf_range(-180.0, 180.0)
+	var spawn_data := get_enemy_spawn_data(initial_wave, rng)
+	var spawn_position: Vector3 = spawn_data["position"]
 
 	var enemy := Node3D.new()
 	enemy.name = "Drone"
@@ -1216,11 +1510,22 @@ func spawn_enemy() -> void:
 	enemy.set_meta("hull", ENEMY_MAX_HULL)
 	enemy.set_meta("fire_cooldown", rng.randf_range(0.8, 1.6))
 	enemy.set_meta("orbit_bias", rng.randf_range(-1.0, 1.0))
+	enemy.set_meta("ambush_mode", bool(spawn_data["ambush_mode"]))
+	enemy.set_meta("field_center", spawn_data["field_center"])
+	enemy.set_meta("field_anchor", spawn_position)
+	enemy.set_meta("patrol_phase", rng.randf_range(0.0, TAU))
 
 	var mesh := MeshInstance3D.new()
 	mesh.mesh = build_enemy_ship_mesh()
+	mark_mesh_wireframe_only(mesh)
 	register_style_mesh(mesh, "enemy", Color(1.0, 0.46, 0.34))
 	enemy.add_child(mesh)
+
+	var solid_mesh := MeshInstance3D.new()
+	solid_mesh.mesh = build_enemy_solid_mesh()
+	mark_mesh_solid_only(solid_mesh)
+	register_style_mesh(solid_mesh, "enemy", Color(1.0, 0.46, 0.34))
+	enemy.add_child(solid_mesh)
 
 	add_child(enemy)
 	enemy_nodes.append(enemy)
@@ -1235,6 +1540,12 @@ func update_enemy_behavior(delta: float) -> void:
 
 		var to_player := player.global_position - enemy.global_position
 		var distance := to_player.length()
+		if bool(enemy.get_meta("ambush_mode", false)) and distance > ENEMY_AMBUSH_WAKE_RADIUS:
+			update_enemy_ambush_patrol(enemy, delta)
+			continue
+		elif bool(enemy.get_meta("ambush_mode", false)):
+			enemy.set_meta("ambush_mode", false)
+
 		var direction := to_player.normalized() if distance > 0.001 else Vector3.FORWARD
 		var lateral := Vector3(-direction.z, 0, direction.x) * float(enemy.get_meta("orbit_bias")) * 55.0
 		var desired_velocity := direction * 130.0 + lateral
@@ -1246,7 +1557,7 @@ func update_enemy_behavior(delta: float) -> void:
 		enemy.set_meta("velocity", velocity)
 		enemy.global_position += velocity * delta
 		if velocity.length() > 2.0:
-			enemy.look_at(enemy.global_position + velocity.normalized(), Vector3.UP, true)
+			enemy.look_at(enemy.global_position + velocity.normalized(), get_safe_up_vector(velocity.normalized(), Vector3.UP), true)
 
 		var cooldown: float = enemy.get_meta("fire_cooldown")
 		cooldown = max(cooldown - delta, 0.0)
@@ -1266,20 +1577,119 @@ func update_enemy_behavior(delta: float) -> void:
 			enemy_nodes.remove_at(i)
 
 
+func get_enemy_spawn_data(initial_wave: bool, rng: RandomNumberGenerator) -> Dictionary:
+	var min_distance := ENEMY_FIELD_SPAWN_MIN_DISTANCE if initial_wave else ENEMY_FIELD_RESPAWN_MIN_DISTANCE
+	var field_spawn := get_debris_field_spawn(min_distance, rng)
+	if not field_spawn.is_empty():
+		field_spawn["ambush_mode"] = initial_wave
+		return field_spawn
+
+	var radial := Vector3(
+		rng.randf_range(-1.0, 1.0),
+		rng.randf_range(-0.2, 0.2),
+		rng.randf_range(-1.0, 1.0)
+	).normalized()
+	var tangent := Vector3(-radial.z, 0, radial.x).normalized()
+	return {
+		"position": player.global_position + radial * rng.randf_range(640.0, 920.0) + tangent * rng.randf_range(-220.0, 220.0),
+		"field_center": Vector3.ZERO,
+		"ambush_mode": false
+	}
+
+
+func get_debris_field_spawn(min_player_distance: float, rng: RandomNumberGenerator) -> Dictionary:
+	if planet_bodies.is_empty():
+		return {}
+
+	var candidates: Array[Dictionary] = []
+	for body in planet_bodies:
+		var planet_node: Node3D = body["node"]
+		var planet_position := planet_node.global_position
+		if player.global_position.distance_to(planet_position) < min_player_distance:
+			continue
+
+		var to_player := player.global_position - planet_position
+		var planar_to_player := Vector3(to_player.x, 0, to_player.z)
+		var hide_direction := Vector3.FORWARD
+		if planar_to_player.length() > 0.001:
+			hide_direction = -planar_to_player.normalized()
+
+		var tangent := Vector3(-hide_direction.z, 0, hide_direction.x).normalized()
+		var ring_radius: float = body["radius"] + 54.0
+		var position := planet_position
+		position += hide_direction * ring_radius
+		position += tangent * rng.randf_range(-DEBRIS_HAZARD_THICKNESS * 0.75, DEBRIS_HAZARD_THICKNESS * 0.75)
+		position.y += rng.randf_range(-18.0, 18.0)
+
+		if player.global_position.distance_to(position) < min_player_distance:
+			continue
+
+		candidates.append({
+			"position": position,
+			"field_center": planet_position,
+			"distance": player.global_position.distance_to(position)
+		})
+
+	if candidates.is_empty():
+		return {}
+
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["distance"]) > float(b["distance"])
+	)
+	return candidates[rng.randi_range(0, min(1, candidates.size() - 1))]
+
+
+func update_enemy_ambush_patrol(enemy: Node3D, delta: float) -> void:
+	var center: Vector3 = enemy.get_meta("field_center", enemy.global_position)
+	var anchor: Vector3 = enemy.get_meta("field_anchor", enemy.global_position)
+	var radial := anchor - center
+	if radial.length() <= 0.001:
+		radial = Vector3.FORWARD * 24.0
+	var tangent := Vector3(-radial.z, 0, radial.x).normalized()
+	if tangent.length() <= 0.001:
+		tangent = Vector3.RIGHT
+
+	var phase: float = enemy.get_meta("patrol_phase", 0.0) + delta * (0.7 + abs(float(enemy.get_meta("orbit_bias", 0.0))) * 0.4)
+	enemy.set_meta("patrol_phase", phase)
+
+	var target_position := anchor
+	target_position += tangent * sin(phase) * ENEMY_FIELD_PATROL_RADIUS
+	target_position.y += cos(phase * 1.6) * 10.0
+
+	var to_target := target_position - enemy.global_position
+	var desired_velocity := Vector3.ZERO
+	if to_target.length() > 0.001:
+		desired_velocity = to_target.normalized() * ENEMY_FIELD_PATROL_SPEED
+
+	var velocity: Vector3 = enemy.get_meta("velocity")
+	velocity = velocity.lerp(desired_velocity, min(delta * 1.6, 1.0))
+	enemy.set_meta("velocity", velocity)
+	enemy.global_position += velocity * delta
+	if velocity.length() > 2.0:
+		enemy.look_at(enemy.global_position + velocity.normalized(), get_safe_up_vector(velocity.normalized(), Vector3.UP), true)
+
+
 func spawn_projectile(origin: Vector3, velocity: Vector3, from_player: bool) -> void:
 	var projectile := Node3D.new()
 	projectile.name = "Pulse"
-	projectile.global_position = origin
 	projectile.set_meta("velocity", velocity)
 	projectile.set_meta("from_player", from_player)
 	projectile.set_meta("life", 0.0)
 
 	var mesh := MeshInstance3D.new()
 	mesh.mesh = build_projectile_mesh()
+	mark_mesh_wireframe_only(mesh)
 	register_style_mesh(mesh, "objective" if from_player else "enemy", Color(0.55, 0.95, 1.0) if from_player else Color(1.0, 0.54, 0.42))
 	projectile.add_child(mesh)
 
+	var solid_mesh := MeshInstance3D.new()
+	solid_mesh.mesh = build_projectile_solid_mesh()
+	mark_mesh_solid_only(solid_mesh)
+	register_style_mesh(solid_mesh, "objective" if from_player else "enemy", Color(0.55, 0.95, 1.0) if from_player else Color(1.0, 0.54, 0.42))
+	projectile.add_child(solid_mesh)
+
 	add_child(projectile)
+	projectile.global_position = origin
 	if from_player:
 		player_projectiles.append(projectile)
 	else:
@@ -1300,7 +1710,7 @@ func update_projectile_list(projectiles: Array, delta: float, from_player: bool)
 
 		var velocity: Vector3 = projectile.get_meta("velocity")
 		projectile.global_position += velocity * delta
-		projectile.look_at(projectile.global_position + velocity.normalized(), Vector3.UP, true)
+		projectile.look_at(projectile.global_position + velocity.normalized(), get_safe_up_vector(velocity.normalized(), Vector3.UP), true)
 
 		var lifetime: float = projectile.get_meta("life") + delta
 		projectile.set_meta("life", lifetime)
@@ -1389,6 +1799,7 @@ func trigger_game_over(reason: String) -> void:
 	game_over_state = true
 	paused = true
 	title_label.text = "Ship Lost"
+	pause_card.visible = true
 	pause_label.visible = true
 	pause_label.text = "Ship Lost\n%s\nPress Enter to restart" % reason
 	play_sfx("loss")
@@ -1466,6 +1877,19 @@ func update_music_state() -> void:
 func get_random_safe_start_position() -> Vector3:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
+	if not planet_bodies.is_empty():
+		for _attempt in range(24):
+			var body: Dictionary = planet_bodies[rng.randi_range(0, planet_bodies.size() - 1)]
+			var planet_node: Node3D = body["node"]
+			var orbit_radius: float = float(body["radius"]) + 1400.0
+			var angle := rng.randf_range(0.0, TAU)
+			var candidate := planet_node.global_position + Vector3(
+				cos(angle) * orbit_radius,
+				rng.randf_range(220.0, 520.0),
+				sin(angle) * orbit_radius
+			)
+			if is_position_safe_for_spawn(candidate):
+				return candidate
 	for _attempt in range(48):
 		var candidate := Vector3(
 			rng.randf_range(-WORLD_LIMIT.x * 0.72, WORLD_LIMIT.x * 0.72),
@@ -1478,14 +1902,14 @@ func get_random_safe_start_position() -> Vector3:
 
 
 func is_position_safe_for_spawn(position: Vector3) -> bool:
-	if position.length() < STAR_DAMAGE_RADIUS + 220.0:
+	if position.length() < STAR_DAMAGE_RADIUS + 2200.0:
 		return false
 	for body in planet_bodies:
 		var node: Node3D = body["node"]
-		if position.distance_to(node.global_position) < float(node.get_meta("collision_radius")) + 180.0:
+		if position.distance_to(node.global_position) < float(node.get_meta("collision_radius")) + 600.0:
 			return false
 	for station in station_order:
-		if position.distance_to(station.global_position) < float(station.get_meta("collision_radius")) + 120.0:
+		if position.distance_to(station.global_position) < float(station.get_meta("collision_radius")) + 400.0:
 			return false
 	return true
 
@@ -1640,25 +2064,36 @@ func update_effects(delta: float) -> void:
 
 
 func update_camera(delta: float) -> void:
+	var ship_basis: Basis = player.call("get_visual_basis")
 	if camera_mode == 1:
-		var ship_basis := player_visual.global_basis.orthonormalized()
-		var local_view_basis := Basis(Vector3.UP, first_person_yaw) * Basis(Vector3.RIGHT, first_person_pitch)
-		var view_basis := ship_basis * local_view_basis
-		var aim_direction := -view_basis.z.normalized()
-		var cockpit_position := player.global_position + Vector3(0, 6.0, 0) + aim_direction * 5.0
-		camera.global_position = camera.global_position.lerp(cockpit_position, min(delta * 10.0, 1.0))
-		camera.look_at(cockpit_position + aim_direction * 160.0, Vector3.UP)
-		reticle.visible = false
+		player.call("set_cockpit_render", true)
+		var cockpit_position: Vector3 = player.call("get_cockpit_position")
+		var aim_direction := -ship_basis.z.normalized()
+		camera.global_position = camera.global_position.lerp(cockpit_position, min(delta * 14.0, 1.0))
+		camera.look_at(cockpit_position + aim_direction * 220.0, get_safe_up_vector(aim_direction, ship_basis.y))
+		reticle.visible = true
 		return
 
+	player.call("set_cockpit_render", false)
 	var lead := player.velocity * CAMERA_VELOCITY_LEAD
-	var orbit_basis := Basis(Vector3.UP, orbit_yaw) * Basis(Vector3.RIGHT, orbit_pitch)
-	var desired_offset := orbit_basis * Vector3(0, 42.0, orbit_distance)
-	var desired := player.global_position + desired_offset + lead
-	camera.global_position = camera.global_position.lerp(desired, min(delta * 1.45, 1.0))
-	var look_target := player.global_position + player.velocity * 0.1 + Vector3(0, 10, 0)
-	camera.look_at(look_target, Vector3.UP)
+	var chase_offset := ship_basis * Vector3(orbit_distance * 0.22, orbit_distance * 0.12, orbit_distance)
+	var desired := player.global_position + chase_offset + lead
+	var look_target: Vector3 = player.call("get_chase_target") + player.velocity * 0.08
+	camera.global_position = camera.global_position.lerp(desired, min(delta * 5.2, 1.0))
+	camera.look_at(look_target, get_safe_up_vector((look_target - camera.global_position).normalized(), ship_basis.y))
 	reticle.visible = true
+
+
+func get_safe_up_vector(direction: Vector3, preferred_up: Vector3) -> Vector3:
+	var forward := direction.normalized()
+	if forward.length() <= 0.001:
+		return Vector3.UP
+	var up := preferred_up.normalized()
+	if up.length() <= 0.001:
+		up = Vector3.UP
+	if abs(forward.dot(up)) > 0.98:
+		up = Vector3.FORWARD if abs(forward.dot(Vector3.FORWARD)) < 0.98 else Vector3.RIGHT
+	return up
 
 
 func update_objective_visuals(delta: float) -> void:
@@ -1666,6 +2101,10 @@ func update_objective_visuals(delta: float) -> void:
 		return
 	if objective_flash_time > 0.0:
 		objective_flash_time = max(objective_flash_time - delta, 0.0)
+	if not objective_guidance_enabled:
+		objective_line.visible = false
+		objective_marker.visible = false
+		return
 
 	var target_station := get_target_station()
 	if target_station == null:
@@ -1747,7 +2186,7 @@ func _on_station_body_exited(body: Node3D, station: Area3D) -> void:
 	if nearby_station == station:
 		nearby_station = null
 		title_label.text = "Wireframe System"
-		update_status("WASD move, R/F rise and descend.\nHold Shift to boost toward the active shipping corridor.")
+		update_status("Mouse steers. WASD thrust, R/F vertical thrust.\nHold Shift to boost, Tab swaps camera, and \\ swaps render mode.")
 
 
 func setup_cargo_route() -> void:
@@ -1758,7 +2197,8 @@ func setup_cargo_route() -> void:
 
 	cargo_loaded = false
 	pickup_station = str(station_order[0].get_meta("station_name"))
-	delivery_station = str(station_order[6].get_meta("station_name"))
+	var midpoint_index := int(station_order.size() / 2)
+	delivery_station = str(station_order[midpoint_index].get_meta("station_name"))
 	cargo_label.text = "Cargo: pick up at %s, deliver to %s" % [pickup_station, delivery_station]
 	objective_label.text = "Objective: pickup at %s" % pickup_station
 
@@ -1788,11 +2228,14 @@ func handle_cargo_dock(station_name: String) -> void:
 func advance_cargo_route() -> void:
 	var pickup_index := station_name_index(pickup_station)
 	var delivery_index := station_name_index(delivery_station)
+	var station_count := station_order.size()
+	var pickup_step := maxi(int(station_count / 2), 1)
+	var delivery_step := maxi(int(station_count / 2) + 1, 1)
 
-	pickup_station = str(station_order[(pickup_index + 3) % station_order.size()].get_meta("station_name"))
-	delivery_station = str(station_order[(delivery_index + 5) % station_order.size()].get_meta("station_name"))
+	pickup_station = str(station_order[(pickup_index + pickup_step) % station_count].get_meta("station_name"))
+	delivery_station = str(station_order[(delivery_index + delivery_step) % station_count].get_meta("station_name"))
 	if pickup_station == delivery_station:
-		delivery_station = str(station_order[(delivery_index + 6) % station_order.size()].get_meta("station_name"))
+		delivery_station = str(station_order[(delivery_index + 1) % station_count].get_meta("station_name"))
 
 	cargo_label.text = "Cargo: pick up at %s, deliver to %s" % [pickup_station, delivery_station]
 	objective_label.text = "Objective: pickup at %s" % pickup_station
@@ -1843,6 +2286,15 @@ func build_planet_mesh(radius: float) -> ArrayMesh:
 	return build_line_mesh(vertices)
 
 
+func build_planet_solid_mesh(radius: float) -> SphereMesh:
+	var mesh := SphereMesh.new()
+	mesh.radius = radius
+	mesh.height = radius * 2.0
+	mesh.radial_segments = 48
+	mesh.rings = 24
+	return mesh
+
+
 func build_station_mesh(size: float) -> ArrayMesh:
 	var s := size
 	var top := Vector3(0, s, 0)
@@ -1883,6 +2335,12 @@ func build_station_mesh(size: float) -> ArrayMesh:
 		vertices.append(upper_ring[i])
 		vertices.append(lower_ring[(i + 1) % lower_ring.size()])
 	return build_line_mesh(vertices)
+
+
+func build_station_solid_mesh(size: float) -> BoxMesh:
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(size * 1.45, size * 0.7, size * 1.9)
+	return mesh
 
 
 func build_dock_marker_mesh(radius: float) -> ArrayMesh:
@@ -1954,6 +2412,12 @@ func build_enemy_ship_mesh() -> ArrayMesh:
 	return build_line_mesh(vertices)
 
 
+func build_enemy_solid_mesh() -> BoxMesh:
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(9.0, 3.4, 14.0)
+	return mesh
+
+
 func build_destroyer_mesh(length: float) -> ArrayMesh:
 	var half := length * 0.5
 	var beam := length * 0.12
@@ -1975,6 +2439,12 @@ func build_destroyer_mesh(length: float) -> ArrayMesh:
 	return build_line_mesh(vertices)
 
 
+func build_destroyer_solid_mesh(length: float) -> BoxMesh:
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(length * 0.32, length * 0.12, length)
+	return mesh
+
+
 func build_enemy_target_marker_mesh(radius: float) -> ArrayMesh:
 	var inner := radius * 0.48
 	var vertices := PackedVector3Array([
@@ -1993,6 +2463,15 @@ func build_projectile_mesh() -> ArrayMesh:
 		Vector3(0, -0.8, 1.4), Vector3(0, 0.8, 1.4)
 	])
 	return build_line_mesh(vertices)
+
+
+func build_projectile_solid_mesh() -> SphereMesh:
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.35
+	mesh.height = 2.7
+	mesh.radial_segments = 12
+	mesh.rings = 6
+	return mesh
 
 
 func build_burst_mesh(radius: float) -> ArrayMesh:
