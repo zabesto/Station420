@@ -82,3 +82,32 @@ offset_bottom = 170.0
 horizontal_alignment = 2
 theme_override_font_sizes/font_size = 20
 text = "WASD move, R/F rise and descend.\nStations ride wide planetary orbits around the star."
+
+[node name="CombatLabel" type="Label" parent="CanvasLayer/HUD"]
+offset_left = 720.0
+offset_top = 170.0
+offset_right = 930.0
+offset_bottom = 300.0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 18
+text = "Hull 100\nShields 100\nContacts 0"
+
+[node name="AlertLabel" type="Label" parent="CanvasLayer/HUD"]
+offset_left = 210.0
+offset_top = 26.0
+offset_right = 750.0
+offset_bottom = 96.0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 26
+text = ""
+
+[node name="PauseLabel" type="Label" parent="CanvasLayer/HUD"]
+visible = false
+offset_left = 240.0
+offset_top = 200.0
+offset_right = 720.0
+offset_bottom = 340.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 34
+text = "Paused\nPress Esc to resume"

@@ -76,6 +76,14 @@ func set_world_limit(value: Vector3) -> void:
 	arena_limit = value
 
 
+func get_aim_direction() -> Vector3:
+	return -visual.global_basis.z.normalized()
+
+
+func get_muzzle_position() -> Vector3:
+	return global_position + get_aim_direction() * 4.6
+
+
 func make_ship_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

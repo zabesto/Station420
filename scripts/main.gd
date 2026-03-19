@@ -8,6 +8,19 @@ const STAR_RADIUS := 90.0
 const SHIP_GRAVITY_SCALE := 0.32
 const GRAVITY_CONSTANT := 2.4
 const GRAVITY_SOFTENING := 1200.0
+const PLAYER_FIRE_COOLDOWN := 0.18
+const PLAYER_PROJECTILE_SPEED := 860.0
+const ENEMY_PROJECTILE_SPEED := 420.0
+const ENEMY_RESPAWN_TIME := 6.0
+const ENEMY_ENGAGE_RADIUS := 860.0
+const ENEMY_FIRE_RADIUS := 560.0
+const PLAYER_MAX_HULL := 100.0
+const PLAYER_MAX_SHIELDS := 100.0
+const SHIELD_RECHARGE_RATE := 10.0
+const PLAYER_COLLISION_RADIUS := 6.0
+const PLANET_COLLISION_MARGIN := 8.0
+const STAR_COLLISION_MARGIN := 18.0
+const STATION_COLLISION_RADIUS := 10.0
 
 const PLANET_LAYOUT := [
 	{
@@ -71,6 +84,9 @@ const STATION_LAYOUT := [
 @onready var objective_label: Label = $CanvasLayer/HUD/ObjectiveLabel
 @onready var scanner_label: Label = $CanvasLayer/HUD/ScannerLabel
 @onready var message_label: Label = $CanvasLayer/HUD/MessageLabel
+@onready var combat_label: Label = $CanvasLayer/HUD/CombatLabel
+@onready var alert_label: Label = $CanvasLayer/HUD/AlertLabel
+@onready var pause_label: Label = $CanvasLayer/HUD/PauseLabel
 
 var nearby_station: Area3D = null
 var dock_count := 0
@@ -86,10 +102,26 @@ var star_node: Node3D
 var planet_bodies := []
 var planet_nodes_by_name := {}
 var world_root: Node3D
+var enemy_nodes := []
+var player_projectiles := []
+var enemy_projectiles := []
+var transient_effects := []
+var player_hull := PLAYER_MAX_HULL
+var player_shields := PLAYER_MAX_SHIELDS
+var kills := 0
+var score := 0
+var fire_cooldown := 0.0
+var shield_recharge_delay := 0.0
+var enemy_respawn_timer := 0.0
+var alert_timer := 0.0
+var paused := false
+var game_over_state := false
 
 
 func _ready() -> void:
 	player.call("set_world_limit", WORLD_LIMIT)
+	alert_label.text = ""
+	pause_label.visible = false
 	create_starfield()
 	create_star()
 	create_planets()
@@ -109,11 +141,13 @@ func _process(delta: float) -> void:
 	update_camera(delta)
 	update_objective_visuals(delta)
 	update_scanner()
+	update_alert(delta)
 
 
 func _physics_process(delta: float) -> void:
 	simulate_planets(delta)
 	player.call("set_gravity_acceleration", compute_ship_gravity() * SHIP_GRAVITY_SCALE)
+	resolve_player_solids()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -151,6 +185,7 @@ func create_starfield() -> void:
 func create_star() -> void:
 	star_node = Node3D.new()
 	star_node.name = "HeliosPrime"
+	star_node.set_meta("collision_radius", STAR_RADIUS + STAR_COLLISION_MARGIN)
 	add_child(star_node)
 
 	var star_mesh := MeshInstance3D.new()
@@ -187,6 +222,7 @@ func create_planets() -> void:
 		var y_position := sin(phase * 1.7) * orbit_radius * tilt
 		var start_position := Vector3(cos(phase) * orbit_radius, y_position, sin(phase) * orbit_radius)
 		root.position = start_position
+		root.set_meta("collision_radius", float(planet_data["radius"]) + PLANET_COLLISION_MARGIN)
 
 		var planet_mesh := MeshInstance3D.new()
 		planet_mesh.mesh = build_planet_mesh(planet_data["radius"])
@@ -246,6 +282,7 @@ func create_stations() -> void:
 		station.set_meta("station_name", station_data["name"])
 		station.set_meta("planet_name", station_data["planet"])
 		station.set_meta("dock_offset", Vector3(0, 0, 18))
+		station.set_meta("collision_radius", STATION_COLLISION_RADIUS)
 		station.body_entered.connect(_on_station_body_entered.bind(station))
 		station.body_exited.connect(_on_station_body_exited.bind(station))
 		orbit_anchor.add_child(station)
@@ -380,6 +417,59 @@ func compute_ship_gravity() -> Vector3:
 	return total_gravity
 
 
+func resolve_player_solids() -> void:
+	var blocked := false
+	blocked = resolve_body_against_sphere(
+		player,
+		star_node.global_position,
+		float(star_node.get_meta("collision_radius")),
+		PLAYER_COLLISION_RADIUS
+	) or blocked
+
+	for body in planet_bodies:
+		var planet_node: Node3D = body["node"]
+		blocked = resolve_body_against_sphere(
+			player,
+			planet_node.global_position,
+			float(planet_node.get_meta("collision_radius")),
+			PLAYER_COLLISION_RADIUS
+		) or blocked
+
+	for station in station_order:
+		blocked = resolve_body_against_sphere(
+			player,
+			station.global_position,
+			float(station.get_meta("collision_radius")),
+			PLAYER_COLLISION_RADIUS
+		) or blocked
+
+	if blocked:
+		set_alert("Collision alarm")
+
+
+func resolve_body_against_sphere(
+	body: CharacterBody3D,
+	sphere_center: Vector3,
+	sphere_radius: float,
+	body_radius: float
+) -> bool:
+	var offset := body.global_position - sphere_center
+	var min_distance := sphere_radius + body_radius
+	var distance_sq := offset.length_squared()
+	if distance_sq >= min_distance * min_distance:
+		return false
+
+	var normal := Vector3.UP
+	if distance_sq > 0.0001:
+		normal = offset / sqrt(distance_sq)
+
+	body.global_position = sphere_center + normal * min_distance
+	var inward_speed := body.velocity.dot(normal)
+	if inward_speed < 0.0:
+		body.velocity -= normal * inward_speed
+	return true
+
+
 func dock_at_station(station: Area3D) -> void:
 	player.global_position = station.global_position + station.get_meta("dock_offset")
 	player.velocity = Vector3.ZERO
@@ -394,6 +484,18 @@ func dock_at_station(station: Area3D) -> void:
 
 func update_status(message: String) -> void:
 	message_label.text = message
+
+
+func update_alert(delta: float) -> void:
+	if alert_timer > 0.0:
+		alert_timer = max(alert_timer - delta, 0.0)
+		if alert_timer == 0.0:
+			alert_label.text = ""
+
+
+func set_alert(message: String, duration: float = 0.7) -> void:
+	alert_label.text = message
+	alert_timer = duration
 
 
 func update_camera(delta: float) -> void:
