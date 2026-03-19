@@ -104,7 +104,14 @@ const STATION_LAYOUT := [
 @onready var pause_label: Label = $CanvasLayer/HUD/PauseLabel
 @onready var start_label: Label = $CanvasLayer/HUD/StartLabel
 @onready var hit_label: Label = $CanvasLayer/HUD/HitLabel
-@onready var settings_label: Label = $CanvasLayer/HUD/SettingsLabel
+@onready var settings_panel: Panel = $CanvasLayer/HUD/SettingsPanel
+@onready var settings_title: Label = $CanvasLayer/HUD/SettingsPanel/SettingsTitle
+@onready var preset_value: Label = $CanvasLayer/HUD/SettingsPanel/PresetValue
+@onready var bloom_value: Label = $CanvasLayer/HUD/SettingsPanel/BloomValue
+@onready var music_value: Label = $CanvasLayer/HUD/SettingsPanel/MusicValue
+@onready var sfx_value: Label = $CanvasLayer/HUD/SettingsPanel/SfxValue
+@onready var settings_hint: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHint
+@onready var settings_hotkeys: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHotkeys
 
 var nearby_station: Area3D = null
 var dock_count := 0
@@ -157,7 +164,7 @@ func _ready() -> void:
 	hit_label.text = ""
 	pause_label.visible = false
 	start_label.visible = true
-	settings_label.visible = false
+	settings_panel.visible = false
 	if DisplayServer.get_name() != "headless":
 		setup_audio()
 	setup_visual_environment()
@@ -218,7 +225,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_TAB:
 		settings_visible = not settings_visible
-		settings_label.visible = settings_visible
+		settings_panel.visible = settings_visible
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -788,16 +795,21 @@ func apply_hud_style() -> void:
 	hit_label.modulate = alert_color
 	pause_label.modulate = accent_color
 	start_label.modulate = accent_color
-	settings_label.modulate = hud_color
+	settings_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.95)
+	settings_title.modulate = accent_color
+	preset_value.modulate = hud_color
+	bloom_value.modulate = hud_color
+	music_value.modulate = hud_color
+	sfx_value.modulate = hud_color
+	settings_hint.modulate = accent_color
+	settings_hotkeys.modulate = hud_color
 
 
 func update_settings_label() -> void:
-	settings_label.text = "Settings [Tab]\nPreset: %s\n1 Neon Wireframe\n2 Toon Combat\n3 Hologram Drift\nB Bloom: %s\nM Music: %s\nN SFX: %s" % [
-		get_preset_name(visual_preset_index),
-		"On" if bloom_enabled else "Off",
-		"On" if music_enabled else "Off",
-		"On" if sfx_enabled else "Off"
-	]
+	preset_value.text = "Preset: %s" % get_preset_name(visual_preset_index)
+	bloom_value.text = "Bloom: %s" % ("On" if bloom_enabled else "Off")
+	music_value.text = "Music: %s" % ("On" if music_enabled else "Off")
+	sfx_value.text = "SFX: %s" % ("On" if sfx_enabled else "Off")
 
 
 func update_hit_feedback(delta: float) -> void:
