@@ -32,6 +32,8 @@ const PLAYER_COLLISION_RADIUS := 6.0
 const PLANET_COLLISION_MARGIN := 8.0
 const STAR_COLLISION_MARGIN := 18.0
 const STATION_COLLISION_RADIUS := 10.0
+const AUDIO_MIX_RATE := 22050.0
+const MUSIC_BUFFER_SECONDS := 0.35
 
 const PLANET_LAYOUT := [
 	{
@@ -88,7 +90,9 @@ const STATION_LAYOUT := [
 ]
 
 @onready var player: CharacterBody3D = $Player
+@onready var player_visual: MeshInstance3D = $Player/Visual
 @onready var camera: Camera3D = $Camera3D
+@onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var title_label: Label = $CanvasLayer/HUD/TitleLabel
 @onready var dock_label: Label = $CanvasLayer/HUD/DockLabel
 @onready var cargo_label: Label = $CanvasLayer/HUD/CargoLabel
@@ -100,6 +104,7 @@ const STATION_LAYOUT := [
 @onready var pause_label: Label = $CanvasLayer/HUD/PauseLabel
 @onready var start_label: Label = $CanvasLayer/HUD/StartLabel
 @onready var hit_label: Label = $CanvasLayer/HUD/HitLabel
+@onready var settings_label: Label = $CanvasLayer/HUD/SettingsLabel
 
 var nearby_station: Area3D = null
 var dock_count := 0
@@ -120,6 +125,13 @@ var enemy_nodes := []
 var player_projectiles := []
 var enemy_projectiles := []
 var transient_effects := []
+var music_player: AudioStreamPlayer
+var music_playback: AudioStreamGeneratorPlayback
+var sfx_streams := {}
+var music_time := 0.0
+var music_phase_a := 0.0
+var music_phase_b := 0.0
+var music_phase_c := 0.0
 var player_hull := PLAYER_MAX_HULL
 var player_shields := PLAYER_MAX_SHIELDS
 var kills := 0
@@ -132,6 +144,11 @@ var hit_timer := 0.0
 var paused := false
 var game_over_state := false
 var start_screen_active := true
+var settings_visible := false
+var visual_preset_index := 0
+var bloom_enabled := true
+var music_enabled := true
+var sfx_enabled := true
 
 
 func _ready() -> void:
@@ -140,6 +157,10 @@ func _ready() -> void:
 	hit_label.text = ""
 	pause_label.visible = false
 	start_label.visible = true
+	settings_label.visible = false
+	if DisplayServer.get_name() != "headless":
+		setup_audio()
+	setup_visual_environment()
 	create_starfield()
 	create_star()
 	create_planets()
@@ -150,18 +171,21 @@ func _ready() -> void:
 	setup_cargo_route()
 	call_deferred("spawn_initial_enemies")
 
-	if station_order.size() > 0:
-		player.global_position = station_order[0].global_position + Vector3(0, 0, 30)
+	player.global_position = get_random_safe_start_position()
+	apply_visual_preset()
 
 	paused = true
 	title_label.text = "Station420"
 	update_combat_label()
+	update_settings_label()
 	update_status("Press Enter to launch.\nUse Space to fire and Esc to pause once you are underway.")
 
 
 func _process(delta: float) -> void:
+	update_music_stream()
 	update_alert(delta)
 	update_hit_feedback(delta)
+	update_settings_label()
 	if paused:
 		return
 
@@ -191,6 +215,33 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		toggle_pause()
 		return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_TAB:
+		settings_visible = not settings_visible
+		settings_label.visible = settings_visible
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_1:
+			set_visual_preset(0)
+			return
+		if event.keycode == KEY_2:
+			set_visual_preset(1)
+			return
+		if event.keycode == KEY_3:
+			set_visual_preset(2)
+			return
+		if event.keycode == KEY_B:
+			bloom_enabled = not bloom_enabled
+			apply_visual_preset()
+			return
+		if event.keycode == KEY_M:
+			music_enabled = not music_enabled
+			update_music_state()
+			return
+		if event.keycode == KEY_N:
+			sfx_enabled = not sfx_enabled
+			return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and start_screen_active:
 		start_run()
@@ -222,19 +273,19 @@ func create_starfield() -> void:
 	var far_stars := MeshInstance3D.new()
 	far_stars.name = "FarStars"
 	far_stars.mesh = build_star_mesh(420, WORLD_LIMIT, 0.45, 2.0)
-	far_stars.material_override = make_line_material(Color(0.82, 0.9, 1.0))
+	register_style_mesh(far_stars, "ambient", Color(0.82, 0.9, 1.0))
 	add_child(far_stars)
 
 	var mid_stars := MeshInstance3D.new()
 	mid_stars.name = "MidStars"
 	mid_stars.mesh = build_star_mesh(180, WORLD_LIMIT * 0.72, 1.2, 3.4)
-	mid_stars.material_override = make_line_material(Color(0.46, 0.88, 1.0))
+	register_style_mesh(mid_stars, "ambient", Color(0.46, 0.88, 1.0))
 	add_child(mid_stars)
 
 	var dust_ribbons := MeshInstance3D.new()
 	dust_ribbons.name = "DustRibbons"
 	dust_ribbons.mesh = build_dust_ribbon_mesh()
-	dust_ribbons.material_override = make_line_material(Color(0.26, 0.6, 0.74))
+	register_style_mesh(dust_ribbons, "ambient", Color(0.26, 0.6, 0.74))
 	world_root.add_child(dust_ribbons)
 
 
@@ -246,12 +297,12 @@ func create_star() -> void:
 
 	var star_mesh := MeshInstance3D.new()
 	star_mesh.mesh = build_planet_mesh(STAR_RADIUS)
-	star_mesh.material_override = make_line_material(Color(1.0, 0.84, 0.28))
+	register_style_mesh(star_mesh, "danger", Color(1.0, 0.84, 0.28))
 	star_node.add_child(star_mesh)
 
 	var star_halo := MeshInstance3D.new()
 	star_halo.mesh = build_ring_mesh(STAR_RADIUS * 1.5, 48)
-	star_halo.material_override = make_line_material(Color(1.0, 0.64, 0.18))
+	register_style_mesh(star_halo, "danger", Color(1.0, 0.64, 0.18))
 	star_halo.rotation = Vector3(PI * 0.5, 0, 0)
 	star_node.add_child(star_halo)
 
@@ -260,6 +311,7 @@ func create_star() -> void:
 	star_label.text = "Helios Prime"
 	star_label.font_size = 48
 	star_label.no_depth_test = true
+	register_style_label(star_label, "label", Color(1.0, 0.88, 0.52))
 	star_node.add_child(star_label)
 
 
@@ -282,18 +334,18 @@ func create_planets() -> void:
 
 		var planet_mesh := MeshInstance3D.new()
 		planet_mesh.mesh = build_planet_mesh(planet_data["radius"])
-		planet_mesh.material_override = make_line_material(planet_data["color"])
+		register_style_mesh(planet_mesh, "planet", planet_data["color"])
 		root.add_child(planet_mesh)
 
 		var orbit_ring := MeshInstance3D.new()
 		orbit_ring.mesh = build_ring_mesh(orbit_radius, 96)
-		orbit_ring.material_override = make_line_material(planet_data["orbit_tint"])
+		register_style_mesh(orbit_ring, "ambient", planet_data["orbit_tint"])
 		orbit_ring.rotation = Vector3(tilt, 0, 0)
 		add_child(orbit_ring)
 
 		var debris_ring := MeshInstance3D.new()
 		debris_ring.mesh = build_debris_belt_mesh(float(planet_data["radius"]) + 54.0, 62.0, 56)
-		debris_ring.material_override = make_line_material(planet_data["orbit_tint"].lerp(Color.WHITE, 0.18))
+		register_style_mesh(debris_ring, "danger", planet_data["orbit_tint"].lerp(Color.WHITE, 0.18))
 		debris_ring.rotation = Vector3(tilt * 3.4, phase * 0.25, 0)
 		root.add_child(debris_ring)
 
@@ -302,6 +354,7 @@ func create_planets() -> void:
 		planet_label.text = planet_data["name"]
 		planet_label.font_size = 42
 		planet_label.no_depth_test = true
+		register_style_label(planet_label, "label", Color.WHITE)
 		root.add_child(planet_label)
 
 		planets_root.add_child(root)
@@ -351,13 +404,13 @@ func create_stations() -> void:
 
 		var wireframe := MeshInstance3D.new()
 		wireframe.mesh = build_station_mesh(14.0)
-		wireframe.material_override = make_line_material(Color(1.0, 0.72, 0.34))
+		register_style_mesh(wireframe, "station", Color(1.0, 0.72, 0.34))
 		station.add_child(wireframe)
 
 		var dock_marker := MeshInstance3D.new()
 		dock_marker.position = Vector3(0, 0, 18)
 		dock_marker.mesh = build_dock_marker_mesh(3.2)
-		dock_marker.material_override = make_line_material(Color(0.55, 1.0, 0.85))
+		register_style_mesh(dock_marker, "dock", Color(0.55, 1.0, 0.85))
 		station.add_child(dock_marker)
 
 		var station_label := Label3D.new()
@@ -365,6 +418,7 @@ func create_stations() -> void:
 		station_label.text = station_data["name"]
 		station_label.font_size = 36
 		station_label.no_depth_test = true
+		register_style_label(station_label, "label", Color.WHITE)
 		station.add_child(station_label)
 
 		station_order.append(station)
@@ -383,7 +437,7 @@ func create_shipping_lanes() -> void:
 			parent_planet.to_local(from_station.global_position),
 			parent_planet.to_local(to_station.global_position)
 		)
-		lane.material_override = make_line_material(Color(0.34, 0.88, 0.76))
+		register_style_mesh(lane, "objective", Color(0.34, 0.88, 0.76))
 		parent_planet.add_child(lane)
 
 
@@ -402,7 +456,7 @@ func create_navigation_beacons() -> void:
 
 		var mesh := MeshInstance3D.new()
 		mesh.mesh = build_nav_beacon_mesh(24.0)
-		mesh.material_override = make_line_material(beacon_data["color"])
+		register_style_mesh(mesh, "objective", beacon_data["color"])
 		root.add_child(mesh)
 
 		var label := Label3D.new()
@@ -410,24 +464,25 @@ func create_navigation_beacons() -> void:
 		label.position = Vector3(0, 24, 0)
 		label.font_size = 32
 		label.no_depth_test = true
+		register_style_label(label, "label", Color.WHITE)
 		root.add_child(label)
 
 
 func create_objective_visuals() -> void:
 	objective_line = MeshInstance3D.new()
 	objective_line.name = "ObjectiveLine"
-	objective_line.material_override = make_line_material(Color(0.5, 0.95, 0.7))
+	register_style_mesh(objective_line, "objective", Color(0.5, 0.95, 0.7))
 	add_child(objective_line)
 
 	objective_marker = MeshInstance3D.new()
 	objective_marker.name = "ObjectiveMarker"
-	objective_marker.material_override = make_line_material(Color(0.45, 1.0, 0.85))
+	register_style_mesh(objective_marker, "objective", Color(0.45, 1.0, 0.85))
 	add_child(objective_marker)
 
 	enemy_target_marker = MeshInstance3D.new()
 	enemy_target_marker.name = "EnemyTargetMarker"
 	enemy_target_marker.mesh = build_enemy_target_marker_mesh(14.0)
-	enemy_target_marker.material_override = make_line_material(Color(1.0, 0.52, 0.42))
+	register_style_mesh(enemy_target_marker, "target", Color(1.0, 0.52, 0.42))
 	enemy_target_marker.visible = false
 	add_child(enemy_target_marker)
 
@@ -542,6 +597,7 @@ func dock_at_station(station: Area3D) -> void:
 	var station_name := str(station.get_meta("station_name"))
 	title_label.text = "Docked"
 	dock_label.text = "Docked: %s (%d)" % [station_name, dock_count]
+	play_sfx("dock")
 	handle_cargo_dock(station_name)
 
 
@@ -559,6 +615,189 @@ func update_alert(delta: float) -> void:
 func set_alert(message: String, duration: float = 0.7) -> void:
 	alert_label.text = message
 	alert_timer = duration
+	if duration >= 0.4:
+		play_sfx("alert")
+
+
+func setup_visual_environment() -> void:
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	world_environment.environment = environment
+
+
+func get_preset_name(index: int) -> String:
+	match index:
+		1:
+			return "Toon Combat"
+		2:
+			return "Hologram Drift"
+		_:
+			return "Neon Wireframe"
+
+
+func set_visual_preset(index: int) -> void:
+	visual_preset_index = clamp(index, 0, 2)
+	apply_visual_preset()
+
+
+func apply_visual_preset() -> void:
+	if world_environment.environment == null:
+		setup_visual_environment()
+	var environment := world_environment.environment
+	match visual_preset_index:
+		1:
+			environment.background_color = Color(0.08, 0.07, 0.09)
+			environment.ambient_light_color = Color(0.95, 0.78, 0.58)
+			environment.ambient_light_energy = 0.75
+			environment.fog_enabled = true
+			environment.fog_light_color = Color(0.46, 0.34, 0.22)
+			environment.fog_density = 0.00095
+		2:
+			environment.background_color = Color(0.03, 0.12, 0.12)
+			environment.ambient_light_color = Color(0.34, 0.95, 0.82)
+			environment.ambient_light_energy = 0.58
+			environment.fog_enabled = true
+			environment.fog_light_color = Color(0.1, 0.66, 0.62)
+			environment.fog_density = 0.0006
+		_:
+			environment.background_color = Color(0.05, 0.07, 0.12)
+			environment.ambient_light_color = Color(0.42, 0.84, 1.0)
+			environment.ambient_light_energy = 0.62
+			environment.fog_enabled = true
+			environment.fog_light_color = Color(0.18, 0.54, 0.88)
+			environment.fog_density = 0.00075
+
+	environment.glow_enabled = bloom_enabled
+	environment.glow_intensity = 0.78 if bloom_enabled else 0.0
+	environment.glow_strength = 0.95 if bloom_enabled else 0.0
+	environment.glow_bloom = 0.18 if bloom_enabled else 0.0
+	environment.tonemap_exposure = 1.1 if visual_preset_index == 0 else 1.0
+
+	for node in get_tree().get_nodes_in_group("style_mesh"):
+		apply_mesh_style(node)
+	for node in get_tree().get_nodes_in_group("style_label"):
+		apply_label_style(node)
+	apply_player_style()
+	apply_hud_style()
+
+
+func register_style_mesh(mesh: MeshInstance3D, role: String, base_color: Color) -> void:
+	mesh.set_meta("style_role", role)
+	mesh.set_meta("style_base_color", base_color)
+	if not mesh.is_in_group("style_mesh"):
+		mesh.add_to_group("style_mesh")
+	apply_mesh_style(mesh)
+
+
+func register_style_label(label: Label3D, role: String, base_color: Color = Color.WHITE) -> void:
+	label.set_meta("style_role", role)
+	label.set_meta("style_base_color", base_color)
+	if not label.is_in_group("style_label"):
+		label.add_to_group("style_label")
+	apply_label_style(label)
+
+
+func apply_mesh_style(mesh: MeshInstance3D) -> void:
+	var role := str(mesh.get_meta("style_role", "world"))
+	var base_color: Color = mesh.get_meta("style_base_color", Color.WHITE)
+	mesh.material_override = build_style_material(role, base_color)
+
+
+func apply_label_style(label: Label3D) -> void:
+	var role := str(label.get_meta("style_role", "label"))
+	var base_color: Color = label.get_meta("style_base_color", Color.WHITE)
+	label.modulate = resolve_style_color(role, base_color)
+
+
+func build_style_material(role: String, base_color: Color) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	var color := resolve_style_color(role, base_color)
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = color
+	if visual_preset_index == 2 and role not in ["enemy", "danger"]:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.albedo_color.a = 0.58
+	return material
+
+
+func resolve_style_color(role: String, base_color: Color) -> Color:
+	match visual_preset_index:
+		1:
+			if role in ["enemy", "danger", "alert"]:
+				return Color(1.0, 0.45, 0.26)
+			if role in ["target", "objective", "dock"]:
+				return Color(1.0, 0.86, 0.3)
+			return quantize_color(base_color.lerp(Color(1.0, 0.82, 0.58), 0.22), 0.26)
+		2:
+			if role in ["enemy", "danger", "alert"]:
+				return Color(1.0, 0.38, 0.44)
+			if role in ["target", "objective", "dock"]:
+				return Color(0.62, 1.0, 0.88)
+			return base_color.lerp(Color(0.26, 1.0, 0.86), 0.5)
+		_:
+			if role in ["enemy", "danger", "alert"]:
+				return Color(1.0, 0.5, 0.34)
+			if role in ["target", "objective", "dock"]:
+				return Color(0.58, 1.0, 0.84)
+			return base_color.lerp(Color(0.36, 0.95, 1.0), 0.16)
+
+
+func quantize_color(color: Color, step: float) -> Color:
+	return Color(
+		snappedf(color.r, step),
+		snappedf(color.g, step),
+		snappedf(color.b, step),
+		color.a
+	)
+
+
+func apply_player_style() -> void:
+	register_style_mesh(player_visual, "player", Color(0.45, 0.88, 1.0))
+	var engine_glow := player_visual.get_node_or_null("EngineGlow")
+	if engine_glow is MeshInstance3D:
+		register_style_mesh(engine_glow, "objective", Color(0.5, 0.95, 1.0))
+	var trail := player.get_node_or_null("Trail")
+	if trail is MeshInstance3D:
+		register_style_mesh(trail, "objective", Color(0.55, 0.95, 1.0))
+
+
+func apply_hud_style() -> void:
+	var hud_color := Color(0.76, 0.92, 1.0)
+	var accent_color := Color(0.56, 1.0, 0.86)
+	var alert_color := Color(1.0, 0.58, 0.46)
+	match visual_preset_index:
+		1:
+			hud_color = Color(1.0, 0.9, 0.72)
+			accent_color = Color(1.0, 0.82, 0.34)
+			alert_color = Color(1.0, 0.48, 0.3)
+		2:
+			hud_color = Color(0.68, 1.0, 0.9)
+			accent_color = Color(0.32, 1.0, 0.82)
+			alert_color = Color(1.0, 0.45, 0.54)
+	title_label.modulate = accent_color
+	dock_label.modulate = hud_color
+	cargo_label.modulate = hud_color
+	objective_label.modulate = accent_color
+	scanner_label.modulate = hud_color
+	message_label.modulate = hud_color
+	combat_label.modulate = hud_color
+	alert_label.modulate = alert_color
+	hit_label.modulate = alert_color
+	pause_label.modulate = accent_color
+	start_label.modulate = accent_color
+	settings_label.modulate = hud_color
+
+
+func update_settings_label() -> void:
+	settings_label.text = "Settings [Tab]\nPreset: %s\n1 Neon Wireframe\n2 Toon Combat\n3 Hologram Drift\nB Bloom: %s\nM Music: %s\nN SFX: %s" % [
+		get_preset_name(visual_preset_index),
+		"On" if bloom_enabled else "Off",
+		"On" if music_enabled else "Off",
+		"On" if sfx_enabled else "Off"
+	]
 
 
 func update_hit_feedback(delta: float) -> void:
@@ -626,6 +865,7 @@ func try_fire_player_projectile() -> void:
 	var origin: Vector3 = player.call("get_muzzle_position")
 	var direction: Vector3 = player.call("get_aim_direction")
 	spawn_projectile(origin, direction * PLAYER_PROJECTILE_SPEED + player.velocity * 0.35, true)
+	play_sfx("player_fire")
 	set_alert("Pulse fired", 0.2)
 
 
@@ -663,7 +903,7 @@ func spawn_enemy() -> void:
 
 	var mesh := MeshInstance3D.new()
 	mesh.mesh = build_enemy_ship_mesh()
-	mesh.material_override = make_line_material(Color(1.0, 0.46, 0.34))
+	register_style_mesh(mesh, "enemy", Color(1.0, 0.46, 0.34))
 	enemy.add_child(mesh)
 
 	add_child(enemy)
@@ -696,6 +936,7 @@ func update_enemy_behavior(delta: float) -> void:
 		cooldown = max(cooldown - delta, 0.0)
 		if distance <= ENEMY_FIRE_RADIUS and cooldown == 0.0 and not game_over_state:
 			spawn_projectile(enemy.global_position - enemy.global_basis.z * 6.0, direction * ENEMY_PROJECTILE_SPEED, false)
+			play_sfx("enemy_fire", -9.0)
 			cooldown = 1.5
 		enemy.set_meta("fire_cooldown", cooldown)
 
@@ -719,7 +960,7 @@ func spawn_projectile(origin: Vector3, velocity: Vector3, from_player: bool) -> 
 
 	var mesh := MeshInstance3D.new()
 	mesh.mesh = build_projectile_mesh()
-	mesh.material_override = make_line_material(Color(0.55, 0.95, 1.0) if from_player else Color(1.0, 0.54, 0.42))
+	register_style_mesh(mesh, "objective" if from_player else "enemy", Color(0.55, 0.95, 1.0) if from_player else Color(1.0, 0.54, 0.42))
 	projectile.add_child(mesh)
 
 	add_child(projectile)
@@ -775,6 +1016,7 @@ func handle_player_projectile_hit(projectile: Node3D) -> bool:
 				kills += 1
 				score += 100
 				create_burst(enemy.global_position, Color(1.0, 0.56, 0.38))
+				play_sfx("enemy_down")
 				enemy.queue_free()
 				enemy_nodes.remove_at(i)
 				set_alert("Drone down", 0.45)
@@ -820,6 +1062,7 @@ func damage_player(amount: float, reason: String, source_position: Vector3 = Vec
 	if amount > 0.0:
 		player_hull = max(player_hull - amount, 0.0)
 	create_burst(player.global_position, Color(1.0, 0.8, 0.46) if player_shields > 0.0 else Color(1.0, 0.4, 0.36))
+	play_sfx("hit")
 	set_alert(reason, 0.45)
 	show_hit_feedback(build_hit_message(reason, source_position))
 	if player_hull <= 0.0:
@@ -832,7 +1075,187 @@ func trigger_game_over(reason: String) -> void:
 	title_label.text = "Ship Lost"
 	pause_label.visible = true
 	pause_label.text = "Ship Lost\n%s\nPress Enter to restart" % reason
+	play_sfx("loss")
 	update_status("Run ended.\nPress Enter to restart the patrol.")
+
+
+func setup_audio() -> void:
+	music_player = AudioStreamPlayer.new()
+	music_player.name = "MusicPlayer"
+	var generator := AudioStreamGenerator.new()
+	generator.mix_rate = AUDIO_MIX_RATE
+	generator.buffer_length = MUSIC_BUFFER_SECONDS
+	music_player.stream = generator
+	music_player.volume_db = -15.0
+	add_child(music_player)
+	music_player.play()
+	music_playback = music_player.get_stream_playback()
+	sfx_streams["player_fire"] = build_player_fire_stream()
+	sfx_streams["enemy_fire"] = build_enemy_fire_stream()
+	sfx_streams["dock"] = build_dock_stream()
+	sfx_streams["hit"] = build_hit_stream()
+	sfx_streams["alert"] = build_alert_stream()
+	sfx_streams["enemy_down"] = build_enemy_down_stream()
+	sfx_streams["loss"] = build_loss_stream()
+	update_music_state()
+	update_music_stream()
+
+
+func update_music_stream() -> void:
+	if music_playback == null:
+		return
+	var frames_available := music_playback.get_frames_available()
+	if frames_available <= 0:
+		return
+
+	var progression := [55.0, 82.41, 73.42, 98.0]
+	var accent := [220.0, 246.94, 196.0, 164.81]
+	for i in range(frames_available):
+		var chord_index := int(floor(music_time / 3.2)) % progression.size()
+		var beat_phase := fmod(music_time, 0.8) / 0.8
+		var low_freq: float = progression[chord_index]
+		var high_freq: float = accent[chord_index]
+		music_phase_a += TAU * low_freq / AUDIO_MIX_RATE
+		music_phase_b += TAU * (low_freq * 1.5) / AUDIO_MIX_RATE
+		music_phase_c += TAU * high_freq / AUDIO_MIX_RATE
+		var drone := sin(music_phase_a) * 0.16 + sin(music_phase_b) * 0.08
+		var shimmer_gate := pow(max(0.0, sin(beat_phase * PI)), 3.0)
+		var shimmer := sin(music_phase_c) * shimmer_gate * 0.035
+		var pulse := sin(music_time * TAU * 0.125) * 0.015
+		var sample: float = clamp(drone + shimmer + pulse, -0.45, 0.45)
+		music_playback.push_frame(Vector2(sample, sample))
+		music_time += 1.0 / AUDIO_MIX_RATE
+
+
+func play_sfx(name: String, volume_db: float = -6.0) -> void:
+	if not sfx_enabled:
+		return
+	var stream: AudioStreamWAV = sfx_streams.get(name, null)
+	if stream == null:
+		return
+	var player_node := AudioStreamPlayer.new()
+	player_node.stream = stream
+	player_node.volume_db = volume_db
+	add_child(player_node)
+	player_node.finished.connect(player_node.queue_free)
+	player_node.play()
+
+
+func update_music_state() -> void:
+	if music_player == null:
+		return
+	music_player.volume_db = -15.0 if music_enabled else -80.0
+
+
+func get_random_safe_start_position() -> Vector3:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	for _attempt in range(48):
+		var candidate := Vector3(
+			rng.randf_range(-WORLD_LIMIT.x * 0.72, WORLD_LIMIT.x * 0.72),
+			rng.randf_range(-WORLD_LIMIT.y * 0.55, WORLD_LIMIT.y * 0.55),
+			rng.randf_range(-WORLD_LIMIT.z * 0.72, WORLD_LIMIT.z * 0.72)
+		)
+		if is_position_safe_for_spawn(candidate):
+			return candidate
+	return Vector3(0, 240, STAR_DAMAGE_RADIUS + 260.0)
+
+
+func is_position_safe_for_spawn(position: Vector3) -> bool:
+	if position.length() < STAR_DAMAGE_RADIUS + 220.0:
+		return false
+	for body in planet_bodies:
+		var node: Node3D = body["node"]
+		if position.distance_to(node.global_position) < float(node.get_meta("collision_radius")) + 180.0:
+			return false
+	for station in station_order:
+		if position.distance_to(station.global_position) < float(station.get_meta("collision_radius")) + 120.0:
+			return false
+	return true
+
+
+func build_player_fire_stream() -> AudioStreamWAV:
+	return build_tone_stream([660.0, 820.0, 980.0], 0.12, 0.22, 0.16, 0.9)
+
+
+func build_enemy_fire_stream() -> AudioStreamWAV:
+	return build_tone_stream([240.0, 210.0, 180.0], 0.16, 0.24, 0.1, 0.7)
+
+
+func build_dock_stream() -> AudioStreamWAV:
+	return build_tone_stream([330.0, 440.0, 554.37], 0.34, 0.2, 0.12, 0.8)
+
+
+func build_hit_stream() -> AudioStreamWAV:
+	return build_noise_stream(0.18, 0.26, 0.55)
+
+
+func build_alert_stream() -> AudioStreamWAV:
+	return build_tone_stream([523.25, 659.25], 0.18, 0.18, 0.1, 0.75)
+
+
+func build_enemy_down_stream() -> AudioStreamWAV:
+	return build_tone_stream([220.0, 164.81, 123.47], 0.28, 0.24, 0.14, 0.85)
+
+
+func build_loss_stream() -> AudioStreamWAV:
+	return build_tone_stream([196.0, 146.83, 110.0, 82.41], 0.6, 0.2, 0.18, 0.95)
+
+
+func build_tone_stream(
+	frequencies: Array,
+	duration: float,
+	amplitude: float,
+	vibrato_depth: float,
+	decay_power: float
+) -> AudioStreamWAV:
+	var sample_count := int(AUDIO_MIX_RATE * duration)
+	var data := PackedByteArray()
+	data.resize(sample_count * 2)
+	var phase := 0.0
+	for i in range(sample_count):
+		var t := float(i) / AUDIO_MIX_RATE
+		var envelope := pow(max(0.0, 1.0 - t / duration), decay_power)
+		var freq: float = frequencies[min(int(floor(t / duration * frequencies.size())), frequencies.size() - 1)]
+		var modulated_freq := freq * (1.0 + sin(t * TAU * 5.0) * vibrato_depth * 0.02)
+		phase += TAU * modulated_freq / AUDIO_MIX_RATE
+		var sample := sin(phase) * amplitude * envelope + sin(phase * 0.5) * amplitude * 0.18 * envelope
+		write_pcm16_sample(data, i, sample)
+	return create_wav_stream(data)
+
+
+func build_noise_stream(duration: float, amplitude: float, decay_power: float) -> AudioStreamWAV:
+	var sample_count := int(AUDIO_MIX_RATE * duration)
+	var data := PackedByteArray()
+	data.resize(sample_count * 2)
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var filter := 0.0
+	for i in range(sample_count):
+		var t := float(i) / AUDIO_MIX_RATE
+		var envelope := pow(max(0.0, 1.0 - t / duration), decay_power)
+		filter = lerp(filter, rng.randf_range(-1.0, 1.0), 0.42)
+		var sample := filter * amplitude * envelope
+		write_pcm16_sample(data, i, sample)
+	return create_wav_stream(data)
+
+
+func write_pcm16_sample(data: PackedByteArray, index: int, sample: float) -> void:
+	var clamped: float = clamp(sample, -1.0, 1.0)
+	var pcm := int(round(clamped * 32767.0))
+	if pcm < 0:
+		pcm += 65536
+	data[index * 2] = pcm & 0xff
+	data[index * 2 + 1] = (pcm >> 8) & 0xff
+
+
+func create_wav_stream(data: PackedByteArray) -> AudioStreamWAV:
+	var stream := AudioStreamWAV.new()
+	stream.data = data
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = AUDIO_MIX_RATE
+	stream.stereo = false
+	return stream
 
 
 func build_hit_message(reason: String, source_position: Vector3) -> String:
@@ -876,7 +1299,7 @@ func update_enemy_target_marker() -> void:
 func create_burst(position: Vector3, color: Color) -> void:
 	var burst := MeshInstance3D.new()
 	burst.mesh = build_burst_mesh(8.0)
-	burst.material_override = make_line_material(color)
+	register_style_mesh(burst, "alert", color)
 	burst.global_position = position
 	burst.set_meta("life", 0.0)
 	add_child(burst)
@@ -925,7 +1348,8 @@ func update_objective_visuals(delta: float) -> void:
 	var line_color := Color(0.5, 0.95, 0.7)
 	if objective_flash_time > 0.0:
 		line_color = Color(1.0, 1.0, 1.0)
-	objective_line.material_override = make_line_material(line_color)
+	objective_line.set_meta("style_base_color", line_color)
+	apply_mesh_style(objective_line)
 	objective_line.mesh = build_line_mesh(PackedVector3Array([
 		player.global_position,
 		station_position + Vector3(0, 0, 18)
