@@ -291,7 +291,7 @@ offset_bottom = 390.0
 horizontal_alignment = 1
 vertical_alignment = 1
 theme_override_font_sizes/font_size = 32
-text = "Station420: Get Dusted\n\nKeyboard: WASD move, R/F rise, Shift boost, Space fire, E dock, Tab camera.\nController: Left stick move, triggers rise/descend, RB boost, A fire, X dock, Y camera.\nAvoid the star and debris belts.\n\nPress Enter or A to launch"
+text = "Station420: Get Dusted\n\nKeyboard: WASD move, R/F rise, Shift boost, Space fire, E dock, Tab camera, U settings.\nMouse: right-drag orbit, wheel zoom, move mouse in first person.\nController: Left stick move, triggers rise/descend, RB boost, A fire, X dock, Y camera.\nAvoid the star and debris belts.\n\nPress Enter or A to launch"
 
 [node name="HitLabel" type="Label" parent="CanvasLayer/HUD"]
 offset_left = 285.0
@@ -363,4 +363,4 @@ offset_top = 216.0
 offset_right = 252.0
 offset_bottom = 320.0
 theme_override_font_sizes/font_size = 15
-text = "1/2/3 presets\nB bloom, M music, N SFX\nLB/RB cycle presets\nD-pad Up bloom\nD-pad Left music\nD-pad Right SFX"
+text = "1/2/3/4 presets\nB bloom, M music, N SFX\nLB/RB cycle presets\nMouse wheel zooms\nRight-drag orbits ship\nD-pad Up bloom\nD-pad Left music\nD-pad Right SFX"

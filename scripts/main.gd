@@ -6,6 +6,10 @@ const DESTROYER_SCALE := 3.4
 const WORLD_LIMIT := Vector3(8400, 1800, 8400)
 const CAMERA_OFFSET := Vector3(0, 132, 290)
 const CAMERA_VELOCITY_LEAD := 0.24
+const CAMERA_MIN_DISTANCE := 72.0
+const CAMERA_MAX_DISTANCE := 420.0
+const CAMERA_MOUSE_SENSITIVITY := 0.005
+const FIRST_PERSON_MOUSE_SENSITIVITY := 0.0028
 const STAR_MASS := 1900000.0
 const STAR_RADIUS := 160.0
 const SHIP_GRAVITY_SCALE := 0.32
@@ -171,9 +175,18 @@ var bloom_enabled := true
 var music_enabled := true
 var sfx_enabled := true
 var camera_mode := 0
+var orbit_distance := CAMERA_OFFSET.length()
+var orbit_pitch := -0.32
+var orbit_yaw := 0.0
+var orbit_dragging := false
+var first_person_yaw := 0.0
+var first_person_pitch := 0.0
 
 
 func _ready() -> void:
+	if DisplayServer.get_name() != "headless":
+		get_window().min_size = Vector2i(1280, 720)
+		get_window().mode = Window.MODE_MAXIMIZED
 	player.call("set_world_limit", WORLD_LIMIT)
 	alert_label.text = ""
 	hit_label.text = ""
@@ -210,6 +223,7 @@ func _ready() -> void:
 	update_combat_label()
 	update_settings_label()
 	update_status("Press Enter to launch.\nUse Space to fire and Esc to pause once you are underway.")
+	update_mouse_mode()
 
 
 func _process(delta: float) -> void:
@@ -255,12 +269,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.button_index == JOY_BUTTON_BACK:
 			settings_visible = not settings_visible
 			settings_panel.visible = settings_visible
+			update_mouse_mode()
 			return
 		if event.button_index == JOY_BUTTON_LEFT_SHOULDER:
-			set_visual_preset((visual_preset_index + 2) % 3)
+			set_visual_preset((visual_preset_index + 3) % 4)
 			return
 		if event.button_index == JOY_BUTTON_RIGHT_SHOULDER:
-			set_visual_preset((visual_preset_index + 1) % 3)
+			set_visual_preset((visual_preset_index + 1) % 4)
 			return
 		if event.button_index == JOY_BUTTON_DPAD_UP:
 			bloom_enabled = not bloom_enabled
@@ -295,6 +310,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_U:
 		settings_visible = not settings_visible
 		settings_panel.visible = settings_visible
+		update_mouse_mode()
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -307,6 +323,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_3:
 			set_visual_preset(2)
 			return
+		if event.keycode == KEY_4:
+			set_visual_preset(3)
+			return
 		if event.keycode == KEY_B:
 			bloom_enabled = not bloom_enabled
 			apply_visual_preset()
@@ -317,6 +336,28 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.keycode == KEY_N:
 			sfx_enabled = not sfx_enabled
+			return
+
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			orbit_dragging = event.pressed and camera_mode == 0 and not paused and not settings_visible and not start_screen_active
+			update_mouse_mode()
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed and camera_mode == 0:
+			orbit_distance = clamp(orbit_distance - 18.0, CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed and camera_mode == 0:
+			orbit_distance = clamp(orbit_distance + 18.0, CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
+			return
+
+	if event is InputEventMouseMotion:
+		if camera_mode == 1 and not paused and not settings_visible and not start_screen_active:
+			first_person_yaw -= event.relative.x * FIRST_PERSON_MOUSE_SENSITIVITY
+			first_person_pitch = clamp(first_person_pitch - event.relative.y * FIRST_PERSON_MOUSE_SENSITIVITY, -0.85, 0.85)
+			return
+		if orbit_dragging:
+			orbit_yaw -= event.relative.x * CAMERA_MOUSE_SENSITIVITY
+			orbit_pitch = clamp(orbit_pitch - event.relative.y * CAMERA_MOUSE_SENSITIVITY, -1.2, -0.08)
 			return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and start_screen_active:
@@ -789,15 +830,17 @@ func setup_visual_environment() -> void:
 func get_preset_name(index: int) -> String:
 	match index:
 		1:
-			return "Toon Combat"
+			return "Neon Wireframe"
 		2:
+			return "Toon Combat"
+		3:
 			return "Hologram Drift"
 		_:
-			return "Neon Wireframe"
+			return "Deep Space"
 
 
 func set_visual_preset(index: int) -> void:
-	visual_preset_index = clamp(index, 0, 2)
+	visual_preset_index = clamp(index, 0, 3)
 	apply_visual_preset()
 
 
@@ -807,13 +850,20 @@ func apply_visual_preset() -> void:
 	var environment := world_environment.environment
 	match visual_preset_index:
 		1:
+			environment.background_color = Color(0.05, 0.07, 0.12)
+			environment.ambient_light_color = Color(0.42, 0.84, 1.0)
+			environment.ambient_light_energy = 0.62
+			environment.fog_enabled = true
+			environment.fog_light_color = Color(0.18, 0.54, 0.88)
+			environment.fog_density = 0.00075
+		2:
 			environment.background_color = Color(0.08, 0.07, 0.09)
 			environment.ambient_light_color = Color(0.95, 0.78, 0.58)
 			environment.ambient_light_energy = 0.75
 			environment.fog_enabled = true
 			environment.fog_light_color = Color(0.46, 0.34, 0.22)
 			environment.fog_density = 0.00095
-		2:
+		3:
 			environment.background_color = Color(0.03, 0.12, 0.12)
 			environment.ambient_light_color = Color(0.34, 0.95, 0.82)
 			environment.ambient_light_energy = 0.58
@@ -821,18 +871,16 @@ func apply_visual_preset() -> void:
 			environment.fog_light_color = Color(0.1, 0.66, 0.62)
 			environment.fog_density = 0.0006
 		_:
-			environment.background_color = Color(0.05, 0.07, 0.12)
-			environment.ambient_light_color = Color(0.42, 0.84, 1.0)
-			environment.ambient_light_energy = 0.62
-			environment.fog_enabled = true
-			environment.fog_light_color = Color(0.18, 0.54, 0.88)
-			environment.fog_density = 0.00075
+			environment.background_color = Color.BLACK
+			environment.ambient_light_color = Color(0.72, 0.8, 0.92)
+			environment.ambient_light_energy = 0.28
+			environment.fog_enabled = false
 
 	environment.glow_enabled = bloom_enabled
 	environment.glow_intensity = 0.78 if bloom_enabled else 0.0
 	environment.glow_strength = 0.95 if bloom_enabled else 0.0
 	environment.glow_bloom = 0.18 if bloom_enabled else 0.0
-	environment.tonemap_exposure = 1.1 if visual_preset_index == 0 else 1.0
+	environment.tonemap_exposure = 1.1 if visual_preset_index == 1 else 1.0
 
 	for node in get_tree().get_nodes_in_group("style_mesh"):
 		apply_mesh_style(node)
@@ -877,7 +925,7 @@ func build_style_material(role: String, base_color: Color) -> StandardMaterial3D
 	material.albedo_color = color
 	material.emission_enabled = true
 	material.emission = color
-	if visual_preset_index == 2 and role not in ["enemy", "danger"]:
+	if visual_preset_index == 3 and role not in ["enemy", "danger"]:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		material.albedo_color.a = 0.58
 	return material
@@ -887,11 +935,17 @@ func resolve_style_color(role: String, base_color: Color) -> Color:
 	match visual_preset_index:
 		1:
 			if role in ["enemy", "danger", "alert"]:
+				return Color(1.0, 0.5, 0.34)
+			if role in ["target", "objective", "dock"]:
+				return Color(0.58, 1.0, 0.84)
+			return base_color.lerp(Color(0.36, 0.95, 1.0), 0.16)
+		2:
+			if role in ["enemy", "danger", "alert"]:
 				return Color(1.0, 0.45, 0.26)
 			if role in ["target", "objective", "dock"]:
 				return Color(1.0, 0.86, 0.3)
 			return quantize_color(base_color.lerp(Color(1.0, 0.82, 0.58), 0.22), 0.26)
-		2:
+		3:
 			if role in ["enemy", "danger", "alert"]:
 				return Color(1.0, 0.38, 0.44)
 			if role in ["target", "objective", "dock"]:
@@ -899,10 +953,10 @@ func resolve_style_color(role: String, base_color: Color) -> Color:
 			return base_color.lerp(Color(0.26, 1.0, 0.86), 0.5)
 		_:
 			if role in ["enemy", "danger", "alert"]:
-				return Color(1.0, 0.5, 0.34)
+				return Color(1.0, 0.4, 0.32)
 			if role in ["target", "objective", "dock"]:
-				return Color(0.58, 1.0, 0.84)
-			return base_color.lerp(Color(0.36, 0.95, 1.0), 0.16)
+				return Color(0.82, 0.92, 1.0)
+			return base_color.lerp(Color(0.78, 0.86, 0.98), 0.08)
 
 
 func quantize_color(color: Color, step: float) -> Color:
@@ -930,13 +984,21 @@ func apply_hud_style() -> void:
 	var alert_color := Color(1.0, 0.58, 0.46)
 	match visual_preset_index:
 		1:
+			hud_color = Color(0.76, 0.92, 1.0)
+			accent_color = Color(0.56, 1.0, 0.86)
+			alert_color = Color(1.0, 0.58, 0.46)
+		2:
 			hud_color = Color(1.0, 0.9, 0.72)
 			accent_color = Color(1.0, 0.82, 0.34)
 			alert_color = Color(1.0, 0.48, 0.3)
-		2:
+		3:
 			hud_color = Color(0.68, 1.0, 0.9)
 			accent_color = Color(0.32, 1.0, 0.82)
 			alert_color = Color(1.0, 0.45, 0.54)
+		_:
+			hud_color = Color(0.84, 0.9, 1.0)
+			accent_color = Color(0.96, 0.98, 1.0)
+			alert_color = Color(1.0, 0.5, 0.45)
 	title_label.modulate = accent_color
 	dock_label.modulate = hud_color
 	cargo_label.modulate = hud_color
@@ -995,6 +1057,7 @@ func start_run() -> void:
 	paused = false
 	title_label.text = "Wireframe System"
 	update_status("Launch confirmed.\nRun cargo, avoid hazards, and clear hostile drones.")
+	update_mouse_mode()
 
 
 func toggle_pause() -> void:
@@ -1007,14 +1070,28 @@ func toggle_pause() -> void:
 		title_label.text = "Paused"
 	else:
 		title_label.text = "Wireframe System"
+	update_mouse_mode()
 
 
 func toggle_camera_mode() -> void:
 	camera_mode = (camera_mode + 1) % 2
+	update_mouse_mode()
 
 
 func restart_game() -> void:
 	get_tree().reload_current_scene()
+
+
+func update_mouse_mode() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if paused or start_screen_active or settings_visible:
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+		return
+	if camera_mode == 1 or orbit_dragging:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		return
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 
 func update_combat_label() -> void:
@@ -1512,7 +1589,10 @@ func update_effects(delta: float) -> void:
 
 func update_camera(delta: float) -> void:
 	if camera_mode == 1:
-		var aim_direction: Vector3 = player.call("get_aim_direction")
+		var ship_basis := player_visual.global_basis.orthonormalized()
+		var local_view_basis := Basis(Vector3.UP, first_person_yaw) * Basis(Vector3.RIGHT, first_person_pitch)
+		var view_basis := ship_basis * local_view_basis
+		var aim_direction := -view_basis.z.normalized()
 		var cockpit_position := player.global_position + Vector3(0, 6.0, 0) + aim_direction * 5.0
 		camera.global_position = camera.global_position.lerp(cockpit_position, min(delta * 10.0, 1.0))
 		camera.look_at(cockpit_position + aim_direction * 160.0, Vector3.UP)
@@ -1520,9 +1600,11 @@ func update_camera(delta: float) -> void:
 		return
 
 	var lead := player.velocity * CAMERA_VELOCITY_LEAD
-	var desired := player.global_position + CAMERA_OFFSET + lead
+	var orbit_basis := Basis(Vector3.UP, orbit_yaw) * Basis(Vector3.RIGHT, orbit_pitch)
+	var desired_offset := orbit_basis * Vector3(0, 42.0, orbit_distance)
+	var desired := player.global_position + desired_offset + lead
 	camera.global_position = camera.global_position.lerp(desired, min(delta * 1.45, 1.0))
-	var look_target := player.global_position + player.velocity * 0.1 + Vector3(0, 6, -10)
+	var look_target := player.global_position + player.velocity * 0.1 + Vector3(0, 10, 0)
 	camera.look_at(look_target, Vector3.UP)
 	reticle.visible = true
 
