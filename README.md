@@ -17,7 +17,7 @@ Small Godot 4 example project. Fly a wireframe ship through a starfield, approac
 
 ## Cloudflare
 
-Cloudflare Workers Static Assets rejects individual files larger than 25 MiB. The exported `build/web/index.wasm` is therefore checked in as a gzip-compressed file and served with headers from `build/web/_headers`.
+Cloudflare Workers Static Assets rejects individual files larger than 25 MiB. The exported `build/web/index.wasm` is therefore checked in as a gzip-compressed file. The exported HTML inflates that file in the browser before Godot instantiates it.
 
 If you re-export the web build, recompress the WebAssembly before committing:
 
