@@ -1,14 +1,16 @@
 extends CharacterBody3D
 
-@export var thrust := 120.0
-@export var max_speed := 280.0
+const SHIP_VISUAL_SCALE := 1.6
+
+@export var thrust := 170.0
+@export var max_speed := 440.0
 @export var damping := 0.42
 @export var boost_multiplier := 1.85
 @export var boost_damping := 0.24
-@export var turn_speed := 5.4
+@export var turn_speed := 4.8
 @export var banking_angle := 0.38
 @export var pitch_angle := 0.22
-@export var arena_limit := Vector3(4800, 1200, 4800)
+@export var arena_limit := Vector3(8400, 1800, 8400)
 
 @onready var visual: MeshInstance3D = $Visual
 
@@ -25,7 +27,7 @@ func _ready() -> void:
 	visual.material_override = make_ship_material()
 	engine_mesh_instance = MeshInstance3D.new()
 	engine_mesh_instance.name = "EngineGlow"
-	engine_mesh_instance.position = Vector3(0, 0, 1.95)
+	engine_mesh_instance.position = Vector3(0, 0, 3.0)
 	engine_mesh_instance.mesh = build_engine_mesh()
 	engine_mesh_instance.material_override = make_engine_material()
 	visual.add_child(engine_mesh_instance)
@@ -81,7 +83,7 @@ func get_aim_direction() -> Vector3:
 
 
 func get_muzzle_position() -> Vector3:
-	return global_position + get_aim_direction() * 4.6
+	return global_position + get_aim_direction() * 7.4
 
 
 func make_ship_material() -> StandardMaterial3D:
@@ -128,7 +130,7 @@ func update_visual_orientation(delta: float, input_direction: Vector3) -> void:
 	var pitch := local_input.z * pitch_angle + local_input.y * pitch_angle * 0.7
 	target_basis = target_basis.rotated(target_basis.z.normalized(), bank)
 	target_basis = target_basis.rotated(target_basis.x.normalized(), pitch)
-	visual.global_basis = visual.global_basis.slerp(target_basis.orthonormalized(), clamp(delta * turn_speed, 0.0, 1.0))
+	visual.global_basis = visual.global_basis.orthonormalized().slerp(target_basis.orthonormalized(), clamp(delta * turn_speed, 0.0, 1.0))
 
 
 func update_engine_visual(delta: float) -> void:
@@ -138,7 +140,7 @@ func update_engine_visual(delta: float) -> void:
 		flare_length += 0.85
 	var pulse := 0.88 + sin(Time.get_ticks_msec() * 0.012) * 0.08
 	engine_mesh_instance.scale = Vector3(1.0, 1.0, flare_length * pulse)
-	engine_mesh_instance.position = Vector3(0, 0, 1.4 + flare_length * 0.2)
+	engine_mesh_instance.position = Vector3(0, 0, 2.5 + flare_length * 0.35)
 
 
 func update_trail(delta: float, input_direction: Vector3) -> void:
@@ -146,7 +148,7 @@ func update_trail(delta: float, input_direction: Vector3) -> void:
 	var trail_interval := 0.028 if boost_active else 0.05
 	if velocity.length() > 1.5 and trail_accumulator >= trail_interval:
 		trail_accumulator = 0.0
-		trail_points.append(global_position + Vector3(0, 0, 1.6))
+		trail_points.append(global_position + Vector3(0, 0, 2.8))
 		while trail_points.size() > (26 if boost_active else 18):
 			trail_points.remove_at(0)
 
@@ -197,6 +199,8 @@ func build_ship_mesh() -> ArrayMesh:
 		Vector3(-2.3, 0, 0.7), Vector3(-0.7, 0, -0.5),
 		Vector3(2.3, 0, 0.7), Vector3(0.7, 0, -0.5)
 	])
+	for i in range(vertices.size()):
+		vertices[i] *= SHIP_VISUAL_SCALE
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -216,6 +220,8 @@ func build_engine_mesh() -> ArrayMesh:
 		Vector3(0.24, 0.18, 0.0), Vector3(0.0, 0.0, 1.0),
 		Vector3(0.0, 0.0, 1.0), Vector3(-0.24, 0.18, 0.0)
 	])
+	for i in range(vertices.size()):
+		vertices[i] *= SHIP_VISUAL_SCALE
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices

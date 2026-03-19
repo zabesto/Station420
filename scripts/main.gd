@@ -1,10 +1,13 @@
 extends Node3D
 
-const WORLD_LIMIT := Vector3(4800, 1200, 4800)
-const CAMERA_OFFSET := Vector3(0, 76, 136)
-const CAMERA_VELOCITY_LEAD := 0.18
-const STAR_MASS := 620000.0
-const STAR_RADIUS := 90.0
+const SYSTEM_SCALE := 1.75
+const STATION_SCALE := 2.6
+const DESTROYER_SCALE := 3.4
+const WORLD_LIMIT := Vector3(8400, 1800, 8400)
+const CAMERA_OFFSET := Vector3(0, 132, 290)
+const CAMERA_VELOCITY_LEAD := 0.24
+const STAR_MASS := 1900000.0
+const STAR_RADIUS := 160.0
 const SHIP_GRAVITY_SCALE := 0.32
 const GRAVITY_CONSTANT := 2.4
 const GRAVITY_SOFTENING := 1200.0
@@ -12,13 +15,13 @@ const PLAYER_FIRE_COOLDOWN := 0.18
 const PLAYER_PROJECTILE_SPEED := 860.0
 const ENEMY_PROJECTILE_SPEED := 420.0
 const ENEMY_RESPAWN_TIME := 6.0
-const ENEMY_ENGAGE_RADIUS := 860.0
-const ENEMY_FIRE_RADIUS := 560.0
+const ENEMY_ENGAGE_RADIUS := 1400.0
+const ENEMY_FIRE_RADIUS := 840.0
 const PLAYER_MAX_HULL := 100.0
 const PLAYER_MAX_SHIELDS := 100.0
 const SHIELD_RECHARGE_RATE := 10.0
 const SHIELD_RECHARGE_DELAY := 2.6
-const STAR_DAMAGE_RADIUS := 210.0
+const STAR_DAMAGE_RADIUS := 360.0
 const STAR_DAMAGE_PER_SECOND := 34.0
 const DEBRIS_HAZARD_THICKNESS := 26.0
 const DEBRIS_DAMAGE_PER_SECOND := 11.0
@@ -26,12 +29,12 @@ const ENEMY_MAX_HULL := 40.0
 const PLAYER_PROJECTILE_DAMAGE := 20.0
 const ENEMY_PROJECTILE_DAMAGE := 16.0
 const ENEMY_CONTACT_DAMAGE := 24.0
-const PLAYER_FIRE_RANGE := 1200.0
+const PLAYER_FIRE_RANGE := 1800.0
 const ENEMY_SPAWN_COUNT := 4
-const PLAYER_COLLISION_RADIUS := 6.0
-const PLANET_COLLISION_MARGIN := 8.0
-const STAR_COLLISION_MARGIN := 18.0
-const STATION_COLLISION_RADIUS := 10.0
+const PLAYER_COLLISION_RADIUS := 9.0
+const PLANET_COLLISION_MARGIN := 18.0
+const STAR_COLLISION_MARGIN := 34.0
+const STATION_COLLISION_RADIUS := 26.0
 const AUDIO_MIX_RATE := 22050.0
 const MUSIC_BUFFER_SECONDS := 0.35
 
@@ -128,6 +131,7 @@ var planet_bodies := []
 var planet_nodes_by_name := {}
 var world_root: Node3D
 var enemy_target_marker: MeshInstance3D
+var destroyer_fleet := []
 var enemy_nodes := []
 var player_projectiles := []
 var enemy_projectiles := []
@@ -174,6 +178,7 @@ func _ready() -> void:
 	create_stations()
 	create_shipping_lanes()
 	create_navigation_beacons()
+	create_destroyer_fleet()
 	create_objective_visuals()
 	setup_cargo_route()
 	call_deferred("spawn_initial_enemies")
@@ -199,6 +204,8 @@ func _process(delta: float) -> void:
 	update_camera(delta)
 	update_objective_visuals(delta)
 	update_enemy_target_marker()
+	update_station_spin(delta)
+	update_destroyer_fleet(delta)
 	update_scanner()
 	update_combat_label()
 
@@ -331,16 +338,17 @@ func create_planets() -> void:
 		var root := Node3D.new()
 		root.name = planet_data["name"]
 
-		var orbit_radius := float(planet_data["orbit_radius"])
+		var orbit_radius := float(planet_data["orbit_radius"]) * SYSTEM_SCALE
 		var phase := float(planet_data["phase"])
 		var tilt := float(planet_data["tilt"])
 		var y_position := sin(phase * 1.7) * orbit_radius * tilt
 		var start_position := Vector3(cos(phase) * orbit_radius, y_position, sin(phase) * orbit_radius)
 		root.position = start_position
-		root.set_meta("collision_radius", float(planet_data["radius"]) + PLANET_COLLISION_MARGIN)
+		var planet_radius := float(planet_data["radius"]) * SYSTEM_SCALE
+		root.set_meta("collision_radius", planet_radius + PLANET_COLLISION_MARGIN)
 
 		var planet_mesh := MeshInstance3D.new()
-		planet_mesh.mesh = build_planet_mesh(planet_data["radius"])
+		planet_mesh.mesh = build_planet_mesh(planet_radius)
 		register_style_mesh(planet_mesh, "planet", planet_data["color"])
 		root.add_child(planet_mesh)
 
@@ -351,13 +359,13 @@ func create_planets() -> void:
 		add_child(orbit_ring)
 
 		var debris_ring := MeshInstance3D.new()
-		debris_ring.mesh = build_debris_belt_mesh(float(planet_data["radius"]) + 54.0, 62.0, 56)
+		debris_ring.mesh = build_debris_belt_mesh(planet_radius + 94.0, 108.0, 72)
 		register_style_mesh(debris_ring, "danger", planet_data["orbit_tint"].lerp(Color.WHITE, 0.18))
 		debris_ring.rotation = Vector3(tilt * 3.4, phase * 0.25, 0)
 		root.add_child(debris_ring)
 
 		var planet_label := Label3D.new()
-		planet_label.position = Vector3(0, planet_data["radius"] + 12.0, 0)
+		planet_label.position = Vector3(0, planet_radius + 22.0, 0)
 		planet_label.text = planet_data["name"]
 		planet_label.font_size = 42
 		planet_label.no_depth_test = true
@@ -375,8 +383,8 @@ func create_planets() -> void:
 		var body := {
 			"name": planet_data["name"],
 			"node": root,
-			"mass": planet_data["mass"],
-			"radius": planet_data["radius"],
+			"mass": float(planet_data["mass"]) * SYSTEM_SCALE * SYSTEM_SCALE,
+			"radius": planet_radius,
 			"velocity": velocity
 		}
 		planet_bodies.append(body)
@@ -388,7 +396,7 @@ func create_stations() -> void:
 		var parent_planet: Node3D = planet_nodes_by_name[station_data["planet"]]
 		var orbit_anchor := Node3D.new()
 		orbit_anchor.name = "%sAnchor" % station_data["name"]
-		orbit_anchor.position = station_data["offset"]
+		orbit_anchor.position = station_data["offset"] * SYSTEM_SCALE
 		parent_planet.add_child(orbit_anchor)
 
 		var station := Area3D.new()
@@ -397,31 +405,32 @@ func create_stations() -> void:
 		station.collision_mask = 1
 		station.set_meta("station_name", station_data["name"])
 		station.set_meta("planet_name", station_data["planet"])
-		station.set_meta("dock_offset", Vector3(0, 0, 18))
+		station.set_meta("dock_offset", Vector3(0, 0, 42))
 		station.set_meta("collision_radius", STATION_COLLISION_RADIUS)
+		station.set_meta("spin_speed", randf_range(0.12, 0.28))
 		station.body_entered.connect(_on_station_body_entered.bind(station))
 		station.body_exited.connect(_on_station_body_exited.bind(station))
 		orbit_anchor.add_child(station)
 
 		var collision := CollisionShape3D.new()
 		var shape := SphereShape3D.new()
-		shape.radius = 12.0
+		shape.radius = STATION_COLLISION_RADIUS
 		collision.shape = shape
 		station.add_child(collision)
 
 		var wireframe := MeshInstance3D.new()
-		wireframe.mesh = build_station_mesh(14.0)
+		wireframe.mesh = build_station_mesh(22.0 * STATION_SCALE)
 		register_style_mesh(wireframe, "station", Color(1.0, 0.72, 0.34))
 		station.add_child(wireframe)
 
 		var dock_marker := MeshInstance3D.new()
-		dock_marker.position = Vector3(0, 0, 18)
-		dock_marker.mesh = build_dock_marker_mesh(3.2)
+		dock_marker.position = Vector3(0, 0, 42)
+		dock_marker.mesh = build_dock_marker_mesh(7.4)
 		register_style_mesh(dock_marker, "dock", Color(0.55, 1.0, 0.85))
 		station.add_child(dock_marker)
 
 		var station_label := Label3D.new()
-		station_label.position = Vector3(0, 16.0, 0)
+		station_label.position = Vector3(0, 34.0, 0)
 		station_label.text = station_data["name"]
 		station_label.font_size = 36
 		station_label.no_depth_test = true
@@ -475,6 +484,43 @@ func create_navigation_beacons() -> void:
 		root.add_child(label)
 
 
+func create_destroyer_fleet() -> void:
+	var fleet_layout := [
+		{"name": "GDV Sovereign", "radius": WORLD_LIMIT.x * 0.54, "phase": 0.3, "height": 140.0, "speed": 0.018},
+		{"name": "GDV Halberd", "radius": WORLD_LIMIT.x * 0.61, "phase": 1.7, "height": -120.0, "speed": 0.014},
+		{"name": "GDV Meridian", "radius": WORLD_LIMIT.x * 0.68, "phase": 3.1, "height": 90.0, "speed": 0.011}
+	]
+
+	for destroyer_data in fleet_layout:
+		var destroyer := Node3D.new()
+		destroyer.name = destroyer_data["name"]
+		destroyer.set_meta("orbit_radius", destroyer_data["radius"])
+		destroyer.set_meta("phase", destroyer_data["phase"])
+		destroyer.set_meta("height", destroyer_data["height"])
+		destroyer.set_meta("speed", destroyer_data["speed"])
+		destroyer.position = compute_destroyer_position(
+			float(destroyer_data["radius"]),
+			float(destroyer_data["phase"]),
+			float(destroyer_data["height"])
+		)
+
+		var mesh := MeshInstance3D.new()
+		mesh.mesh = build_destroyer_mesh(42.0 * DESTROYER_SCALE)
+		register_style_mesh(mesh, "station", Color(0.74, 0.88, 1.0))
+		destroyer.add_child(mesh)
+
+		var label := Label3D.new()
+		label.text = destroyer_data["name"]
+		label.position = Vector3(0, 36, 0)
+		label.font_size = 30
+		label.no_depth_test = true
+		register_style_label(label, "label", Color.WHITE)
+		destroyer.add_child(label)
+
+		add_child(destroyer)
+		destroyer_fleet.append(destroyer)
+
+
 func create_objective_visuals() -> void:
 	objective_line = MeshInstance3D.new()
 	objective_line.name = "ObjectiveLine"
@@ -492,6 +538,41 @@ func create_objective_visuals() -> void:
 	register_style_mesh(enemy_target_marker, "target", Color(1.0, 0.52, 0.42))
 	enemy_target_marker.visible = false
 	add_child(enemy_target_marker)
+
+
+func update_station_spin(delta: float) -> void:
+	for station in station_order:
+		if is_instance_valid(station):
+			station.rotate_y(float(station.get_meta("spin_speed", 0.18)) * delta)
+			station.rotate_x(float(station.get_meta("spin_speed", 0.18)) * delta * 0.32)
+
+
+func update_destroyer_fleet(delta: float) -> void:
+	for destroyer in destroyer_fleet:
+		if not is_instance_valid(destroyer):
+			continue
+		var phase: float = float(destroyer.get_meta("phase")) + float(destroyer.get_meta("speed")) * delta
+		destroyer.set_meta("phase", phase)
+		var position := compute_destroyer_position(
+			float(destroyer.get_meta("orbit_radius")),
+			phase,
+			float(destroyer.get_meta("height"))
+		)
+		destroyer.global_position = position
+		var next_position := compute_destroyer_position(
+			float(destroyer.get_meta("orbit_radius")),
+			phase + 0.02,
+			float(destroyer.get_meta("height"))
+		)
+		destroyer.look_at(next_position, Vector3.UP, true)
+
+
+func compute_destroyer_position(orbit_radius: float, phase: float, height: float) -> Vector3:
+	return Vector3(
+		cos(phase) * orbit_radius,
+		height + sin(phase * 2.0) * 42.0,
+		sin(phase) * orbit_radius
+	)
 
 
 func simulate_planets(delta: float) -> void:
@@ -1523,27 +1604,43 @@ func build_planet_mesh(radius: float) -> ArrayMesh:
 
 func build_station_mesh(size: float) -> ArrayMesh:
 	var s := size
-	var zf := size * 0.7
-	var zb := -size * 0.7
-	var inner := size * 0.4
+	var top := Vector3(0, s, 0)
+	var bottom := Vector3(0, -s, 0)
+	var east := Vector3(s, 0, 0)
+	var west := Vector3(-s, 0, 0)
+	var north := Vector3(0, 0, -s)
+	var south := Vector3(0, 0, s)
+	var upper_ring := [
+		Vector3(s * 0.55, s * 0.45, 0),
+		Vector3(0, s * 0.45, s * 0.55),
+		Vector3(-s * 0.55, s * 0.45, 0),
+		Vector3(0, s * 0.45, -s * 0.55)
+	]
+	var lower_ring := [
+		Vector3(s * 0.55, -s * 0.45, 0),
+		Vector3(0, -s * 0.45, s * 0.55),
+		Vector3(-s * 0.55, -s * 0.45, 0),
+		Vector3(0, -s * 0.45, -s * 0.55)
+	]
 	var vertices := PackedVector3Array([
-		Vector3(-s, -s, zf), Vector3(s, -s, zf),
-		Vector3(s, -s, zf), Vector3(s, s, zf),
-		Vector3(s, s, zf), Vector3(-s, s, zf),
-		Vector3(-s, s, zf), Vector3(-s, -s, zf),
-		Vector3(-s, -s, zb), Vector3(s, -s, zb),
-		Vector3(s, -s, zb), Vector3(s, s, zb),
-		Vector3(s, s, zb), Vector3(-s, s, zb),
-		Vector3(-s, s, zb), Vector3(-s, -s, zb),
-		Vector3(-s, -s, zf), Vector3(-s, -s, zb),
-		Vector3(s, -s, zf), Vector3(s, -s, zb),
-		Vector3(s, s, zf), Vector3(s, s, zb),
-		Vector3(-s, s, zf), Vector3(-s, s, zb),
-		Vector3(-inner, -inner, 0), Vector3(inner, -inner, 0),
-		Vector3(inner, -inner, 0), Vector3(inner, inner, 0),
-		Vector3(inner, inner, 0), Vector3(-inner, inner, 0),
-		Vector3(-inner, inner, 0), Vector3(-inner, -inner, 0)
+		top, east, top, south, top, west, top, north,
+		bottom, east, bottom, south, bottom, west, bottom, north,
+		east, south, south, west, west, north, north, east
 	])
+	for i in range(upper_ring.size()):
+		vertices.append(upper_ring[i])
+		vertices.append(upper_ring[(i + 1) % upper_ring.size()])
+		vertices.append(lower_ring[i])
+		vertices.append(lower_ring[(i + 1) % lower_ring.size()])
+		vertices.append(upper_ring[i])
+		vertices.append(lower_ring[i])
+		vertices.append(top)
+		vertices.append(upper_ring[i])
+		vertices.append(bottom)
+		vertices.append(lower_ring[i])
+	for i in range(upper_ring.size()):
+		vertices.append(upper_ring[i])
+		vertices.append(lower_ring[(i + 1) % lower_ring.size()])
 	return build_line_mesh(vertices)
 
 
@@ -1612,6 +1709,27 @@ func build_enemy_ship_mesh() -> ArrayMesh:
 		Vector3(-7, 0, 1), Vector3(-2, 0, 4),
 		Vector3(7, 0, 1), Vector3(2, 0, 4),
 		Vector3(0, -2.2, 5), Vector3(0, 2.6, 7)
+	])
+	return build_line_mesh(vertices)
+
+
+func build_destroyer_mesh(length: float) -> ArrayMesh:
+	var half := length * 0.5
+	var beam := length * 0.12
+	var tower := length * 0.09
+	var vertices := PackedVector3Array([
+		Vector3(0, 0, -half), Vector3(beam, 0, half * 0.4),
+		Vector3(beam, 0, half * 0.4), Vector3(beam * 1.4, 0, half),
+		Vector3(beam * 1.4, 0, half), Vector3(-beam * 1.4, 0, half),
+		Vector3(-beam * 1.4, 0, half), Vector3(-beam, 0, half * 0.4),
+		Vector3(-beam, 0, half * 0.4), Vector3(0, 0, -half),
+		Vector3(-beam * 0.8, tower, -half * 0.15), Vector3(beam * 0.8, tower, -half * 0.15),
+		Vector3(beam * 0.8, tower, -half * 0.15), Vector3(beam * 0.45, tower * 1.6, half * 0.12),
+		Vector3(beam * 0.45, tower * 1.6, half * 0.12), Vector3(-beam * 0.45, tower * 1.6, half * 0.12),
+		Vector3(-beam * 0.45, tower * 1.6, half * 0.12), Vector3(-beam * 0.8, tower, -half * 0.15),
+		Vector3(-beam * 1.1, 0, half * 0.72), Vector3(-beam * 1.9, 0, half),
+		Vector3(beam * 1.1, 0, half * 0.72), Vector3(beam * 1.9, 0, half),
+		Vector3(-beam * 0.55, -tower * 0.55, half * 0.9), Vector3(beam * 0.55, -tower * 0.55, half * 0.9)
 	])
 	return build_line_mesh(vertices)
 
