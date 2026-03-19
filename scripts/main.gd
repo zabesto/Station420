@@ -292,7 +292,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle_camera_mode()
 		return
 
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_U:
 		settings_visible = not settings_visible
 		settings_panel.visible = settings_visible
 		return

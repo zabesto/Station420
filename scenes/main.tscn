@@ -355,7 +355,7 @@ offset_top = 190.0
 offset_right = 252.0
 offset_bottom = 234.0
 theme_override_font_sizes/font_size = 15
-text = "F1 or Back toggles this panel"
+text = "U or Back toggles this panel"
 
 [node name="SettingsHotkeys" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
