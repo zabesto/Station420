@@ -738,6 +738,8 @@ func compute_ship_gravity() -> Vector3:
 
 
 func resolve_player_solids() -> void:
+	if star_node == null or not is_instance_valid(star_node):
+		return
 	var blocked := false
 	blocked = resolve_body_against_sphere(
 		player,
@@ -1601,6 +1603,8 @@ func get_primary_enemy_target() -> Node3D:
 
 
 func update_enemy_target_marker() -> void:
+	if enemy_target_marker == null or not is_instance_valid(enemy_target_marker):
+		return
 	var target := get_primary_enemy_target()
 	if target == null:
 		enemy_target_marker.visible = false
@@ -1613,10 +1617,10 @@ func update_enemy_target_marker() -> void:
 func create_burst(position: Vector3, color: Color) -> void:
 	var burst := MeshInstance3D.new()
 	burst.mesh = build_burst_mesh(8.0)
-	register_style_mesh(burst, "alert", color)
+	add_child(burst)
 	burst.global_position = position
 	burst.set_meta("life", 0.0)
-	add_child(burst)
+	register_style_mesh(burst, "alert", color)
 	transient_effects.append(burst)
 
 
@@ -1658,6 +1662,8 @@ func update_camera(delta: float) -> void:
 
 
 func update_objective_visuals(delta: float) -> void:
+	if objective_line == null or objective_marker == null:
+		return
 	if objective_flash_time > 0.0:
 		objective_flash_time = max(objective_flash_time - delta, 0.0)
 
