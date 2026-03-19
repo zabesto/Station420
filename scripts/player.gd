@@ -1,6 +1,7 @@
 extends CharacterBody3D
 
 const SHIP_VISUAL_SCALE := 1.6
+const CONTROLLER_DEADZONE := 0.18
 
 @export var thrust := 170.0
 @export var max_speed := 440.0
@@ -39,22 +40,8 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var input_direction := Vector3.ZERO
-
-	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
-		input_direction.x -= 1.0
-	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
-		input_direction.x += 1.0
-	if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
-		input_direction.z -= 1.0
-	if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
-		input_direction.z += 1.0
-	if Input.is_key_pressed(KEY_R):
-		input_direction.y += 1.0
-	if Input.is_key_pressed(KEY_F):
-		input_direction.y -= 1.0
-
-	boost_active = Input.is_key_pressed(KEY_SHIFT)
+	var input_direction := get_flight_input()
+	boost_active = Input.is_key_pressed(KEY_SHIFT) or is_controller_boost_pressed()
 	var current_thrust := thrust * boost_multiplier if boost_active else thrust
 	var thrust_vector := input_direction.normalized() * current_thrust if input_direction.length() > 0.0 else Vector3.ZERO
 	velocity += (thrust_vector + gravity_acceleration) * delta
@@ -76,6 +63,55 @@ func set_gravity_acceleration(value: Vector3) -> void:
 
 func set_world_limit(value: Vector3) -> void:
 	arena_limit = value
+
+
+func get_flight_input() -> Vector3:
+	var input_direction := Vector3.ZERO
+
+	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
+		input_direction.x -= 1.0
+	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
+		input_direction.x += 1.0
+	if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
+		input_direction.z -= 1.0
+	if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
+		input_direction.z += 1.0
+	if Input.is_key_pressed(KEY_R):
+		input_direction.y += 1.0
+	if Input.is_key_pressed(KEY_F):
+		input_direction.y -= 1.0
+
+	var joypad := get_primary_joypad()
+	if joypad != -1:
+		var stick_x := apply_deadzone(Input.get_joy_axis(joypad, JOY_AXIS_LEFT_X))
+		var stick_y := apply_deadzone(Input.get_joy_axis(joypad, JOY_AXIS_LEFT_Y))
+		var rise: float = clamp(Input.get_joy_axis(joypad, JOY_AXIS_TRIGGER_RIGHT), 0.0, 1.0)
+		var descend: float = clamp(Input.get_joy_axis(joypad, JOY_AXIS_TRIGGER_LEFT), 0.0, 1.0)
+		input_direction.x += stick_x
+		input_direction.z += stick_y
+		input_direction.y += rise - descend
+
+	return input_direction.limit_length(1.0)
+
+
+func get_primary_joypad() -> int:
+	var joypads := Input.get_connected_joypads()
+	if joypads.is_empty():
+		return -1
+	return int(joypads[0])
+
+
+func apply_deadzone(value: float) -> float:
+	if abs(value) < CONTROLLER_DEADZONE:
+		return 0.0
+	return value
+
+
+func is_controller_boost_pressed() -> bool:
+	var joypad := get_primary_joypad()
+	if joypad == -1:
+		return false
+	return Input.is_joy_button_pressed(joypad, JOY_BUTTON_RIGHT_SHOULDER)
 
 
 func get_aim_direction() -> Vector3:

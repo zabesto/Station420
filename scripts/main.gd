@@ -226,6 +226,42 @@ func _physics_process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_START:
+			toggle_pause()
+			return
+		if event.button_index == JOY_BUTTON_Y:
+			settings_visible = not settings_visible
+			settings_panel.visible = settings_visible
+			return
+		if event.button_index == JOY_BUTTON_LEFT_SHOULDER:
+			set_visual_preset((visual_preset_index + 2) % 3)
+			return
+		if event.button_index == JOY_BUTTON_RIGHT_SHOULDER:
+			set_visual_preset((visual_preset_index + 1) % 3)
+			return
+		if event.button_index == JOY_BUTTON_DPAD_UP:
+			bloom_enabled = not bloom_enabled
+			apply_visual_preset()
+			return
+		if event.button_index == JOY_BUTTON_DPAD_LEFT:
+			music_enabled = not music_enabled
+			update_music_state()
+			return
+		if event.button_index == JOY_BUTTON_DPAD_RIGHT:
+			sfx_enabled = not sfx_enabled
+			return
+		if event.button_index == JOY_BUTTON_A and game_over_state:
+			restart_game()
+			return
+		if event.button_index == JOY_BUTTON_A and start_screen_active:
+			start_run()
+			return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and game_over_state:
+		restart_game()
+		return
+
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		toggle_pause()
 		return
@@ -264,9 +300,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if paused:
 		return
 
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and game_over_state:
-		restart_game()
-		return
+	if event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_A:
+			try_fire_player_projectile()
+			return
+		if event.button_index == JOY_BUTTON_X:
+			if nearby_station:
+				dock_at_station(nearby_station)
+			else:
+				update_status("No station in range.\nApproach a station halo, then press dock to moor.")
+			return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE:
 		try_fire_player_projectile()

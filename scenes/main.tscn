@@ -122,7 +122,7 @@ offset_bottom = 390.0
 horizontal_alignment = 1
 vertical_alignment = 1
 theme_override_font_sizes/font_size = 32
-text = "Station420: Get Dusted\n\nWASD move, R/F rise and descend, Shift boosts, Space fires.\nDock with E. Avoid the star and debris belts.\n\nPress Enter to launch"
+text = "Station420: Get Dusted\n\nKeyboard: WASD move, R/F rise, Shift boost, Space fire, E dock.\nController: Left stick move, triggers rise/descend, RB boost, A fire, X dock.\nAvoid the star and debris belts.\n\nPress Enter or A to launch"
 
 [node name="HitLabel" type="Label" parent="CanvasLayer/HUD"]
 offset_left = 285.0
@@ -186,7 +186,7 @@ offset_top = 190.0
 offset_right = 252.0
 offset_bottom = 234.0
 theme_override_font_sizes/font_size = 15
-text = "Tab toggles this panel"
+text = "Tab or Y toggles this panel"
 
 [node name="SettingsHotkeys" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
@@ -194,4 +194,4 @@ offset_top = 216.0
 offset_right = 252.0
 offset_bottom = 320.0
 theme_override_font_sizes/font_size = 15
-text = "1 Neon Wireframe\n2 Toon Combat\n3 Hologram Drift\nB Bloom\nM Music\nN SFX"
+text = "1/2/3 presets\nB bloom, M music, N SFX\nLB/RB cycle presets\nD-pad Up bloom\nD-pad Left music\nD-pad Right SFX"
