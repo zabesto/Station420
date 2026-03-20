@@ -95,6 +95,16 @@ offset_bottom = 46.0
 tooltip_text = "Open help and settings"
 text = "?"
 
+[node name="ShaderButton" type="Button" parent="CanvasLayer/HUD"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -228.0
+offset_top = 18.0
+offset_right = -180.0
+offset_bottom = 46.0
+tooltip_text = "Open shader controls"
+text = "FX"
+
 [node name="FullscreenButton" type="Button" parent="CanvasLayer/HUD"]
 anchor_left = 1.0
 anchor_right = 1.0
@@ -1105,3 +1115,88 @@ offset_bottom = 410.0
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 11
 text = "Press Esc, H, Back, or Close to return"
+
+[node name="ShaderPanel" type="Panel" parent="CanvasLayer/HUD"]
+visible = false
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -180.0
+offset_top = -126.0
+offset_right = 180.0
+offset_bottom = 126.0
+clip_contents = true
+
+[node name="ShaderTitle" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 16.0
+offset_right = 220.0
+offset_bottom = 40.0
+theme_override_font_sizes/font_size = 15
+text = "Shaders"
+
+[node name="ShaderCloseButton" type="Button" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 256.0
+offset_top = 14.0
+offset_right = 340.0
+offset_bottom = 44.0
+tooltip_text = "Close shader panel"
+text = "Close"
+
+[node name="PostFxValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 60.0
+offset_right = 220.0
+offset_bottom = 84.0
+theme_override_font_sizes/font_size = 13
+text = "Screen FX:"
+
+[node name="PostFxButton" type="Button" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 236.0
+offset_top = 56.0
+offset_right = 340.0
+offset_bottom = 86.0
+tooltip_text = "Toggle fullscreen edge shader"
+text = "On"
+
+[node name="BlurFxValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 100.0
+offset_right = 220.0
+offset_bottom = 124.0
+theme_override_font_sizes/font_size = 13
+text = "Overlay Blur:"
+
+[node name="BlurFxButton" type="Button" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 236.0
+offset_top = 96.0
+offset_right = 340.0
+offset_bottom = 126.0
+tooltip_text = "Toggle overlay blur shader"
+text = "On"
+
+[node name="AttitudeShaderValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 140.0
+offset_right = 220.0
+offset_bottom = 164.0
+theme_override_font_sizes/font_size = 13
+text = "Attitude Ball:"
+
+[node name="AttitudeShaderButton" type="Button" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 236.0
+offset_top = 136.0
+offset_right = 340.0
+offset_bottom = 166.0
+tooltip_text = "Toggle attitude indicator shader"
+text = "On"
+
+[node name="ShaderHint" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 188.0
+offset_right = 340.0
+offset_bottom = 222.0
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Turn passes off if the look gets too heavy. Press Esc or Close to return."

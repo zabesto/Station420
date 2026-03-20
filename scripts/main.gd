@@ -145,6 +145,7 @@ const STATION_LAYOUT := [
 @onready var title_label: Label = $CanvasLayer/HUD/TitleLabel
 @onready var debug_save_defaults_button: Button = $CanvasLayer/HUD/DebugSaveDefaultsButton
 @onready var help_button: Button = $CanvasLayer/HUD/HelpButton
+@onready var shader_button: Button = $CanvasLayer/HUD/ShaderButton
 @onready var fullscreen_button: Button = $CanvasLayer/HUD/FullscreenButton
 @onready var cinematic_top_bar: ColorRect = $CanvasLayer/HUD/CinematicTopBar
 @onready var cinematic_bottom_bar: ColorRect = $CanvasLayer/HUD/CinematicBottomBar
@@ -232,6 +233,16 @@ const STATION_LAYOUT := [
 @onready var controls_controller_label: Label = $CanvasLayer/HUD/ControlsPanel/ControlsControllerLabel
 @onready var controls_controller_text: Label = $CanvasLayer/HUD/ControlsPanel/ControlsControllerText
 @onready var controls_hint: Label = $CanvasLayer/HUD/ControlsPanel/ControlsHint
+@onready var shader_panel: Panel = $CanvasLayer/HUD/ShaderPanel
+@onready var shader_title: Label = $CanvasLayer/HUD/ShaderPanel/ShaderTitle
+@onready var shader_close_button: Button = $CanvasLayer/HUD/ShaderPanel/ShaderCloseButton
+@onready var post_fx_value: Label = $CanvasLayer/HUD/ShaderPanel/PostFxValue
+@onready var post_fx_button: Button = $CanvasLayer/HUD/ShaderPanel/PostFxButton
+@onready var blur_fx_value: Label = $CanvasLayer/HUD/ShaderPanel/BlurFxValue
+@onready var blur_fx_button: Button = $CanvasLayer/HUD/ShaderPanel/BlurFxButton
+@onready var attitude_shader_value: Label = $CanvasLayer/HUD/ShaderPanel/AttitudeShaderValue
+@onready var attitude_shader_button: Button = $CanvasLayer/HUD/ShaderPanel/AttitudeShaderButton
+@onready var shader_hint: Label = $CanvasLayer/HUD/ShaderPanel/ShaderHint
 
 var nearby_station: Area3D = null
 var dock_count := 0
@@ -292,20 +303,24 @@ var start_screen_active := true
 var boot_screen_time := 0.0
 var settings_visible := false
 var controls_visible := false
+var shader_panel_visible := false
 var visual_preset_index := 0
 var shaded_mode := false
-var bloom_enabled := true
+var bloom_enabled := false
 var music_enabled := true
 var sfx_enabled := true
 var music_volume := 0.72
 var sfx_volume := 0.85
 var invert_y_axis := false
 var flight_physics_mode := "game"
-var edge_threshold := 0.16
-var edge_strength_scale := 1.0
-var edge_glow_scale := 1.0
-var blur_strength_scale := 1.0
-var wire_shader_scale := 0.45
+var edge_threshold := 0.12
+var edge_strength_scale := 0.72
+var edge_glow_scale := 0.58
+var blur_strength_scale := 0.7
+var wire_shader_scale := 0.32
+var edge_shader_enabled := true
+var blur_shader_enabled := true
+var attitude_shader_enabled := true
 var shader_mode_index := 1
 var autopilot_active := false
 var autopilot_state := ""
@@ -356,6 +371,7 @@ func _ready() -> void:
 	start_label.visible = true
 	settings_panel.visible = false
 	controls_panel.visible = false
+	shader_panel.visible = false
 	dock_label.visible = false
 	cargo_label.visible = false
 	objective_label.visible = false
@@ -390,6 +406,7 @@ func _ready() -> void:
 	apply_start_camera_framing(start_spawn)
 	player.call("set_physics_mode", flight_physics_mode)
 	apply_visual_preset()
+	apply_shader_runtime_settings()
 	player.call("set_camera_view", camera_mode)
 	connect_settings_controls()
 	update_responsive_hud_layout(true)
@@ -413,8 +430,13 @@ func _exit_tree() -> void:
 
 
 func connect_settings_controls() -> void:
+	shader_button.pressed.connect(_on_shader_panel_pressed)
 	controls_button.pressed.connect(_on_controls_pressed)
 	controls_close_button.pressed.connect(_on_controls_close_pressed)
+	shader_close_button.pressed.connect(_on_shader_close_pressed)
+	post_fx_button.pressed.connect(_on_post_fx_pressed)
+	blur_fx_button.pressed.connect(_on_blur_fx_pressed)
+	attitude_shader_button.pressed.connect(_on_attitude_shader_pressed)
 	preset_prev_button.pressed.connect(_on_preset_prev_pressed)
 	preset_next_button.pressed.connect(_on_preset_next_pressed)
 	debug_save_defaults_button.pressed.connect(_on_debug_save_defaults_pressed)
@@ -461,6 +483,24 @@ func populate_shader_mode_option() -> void:
 	]:
 		shader_mode_option.add_item(name)
 	shader_mode_option.selected = clamp(shader_mode_index, 0, shader_mode_option.item_count - 1)
+
+
+func apply_shader_runtime_settings() -> void:
+	edge_pass.visible = edge_shader_enabled
+	update_overlay_blur()
+	update_attitude_indicator_theme()
+	update_shader_panel_labels()
+
+
+func update_shader_panel_labels() -> void:
+	shader_title.text = "Shaders"
+	post_fx_value.text = "Screen FX: %s" % ("On" if edge_shader_enabled else "Off")
+	post_fx_button.text = "On" if edge_shader_enabled else "Off"
+	blur_fx_value.text = "Overlay Blur: %s" % ("On" if blur_shader_enabled else "Off")
+	blur_fx_button.text = "On" if blur_shader_enabled else "Off"
+	attitude_shader_value.text = "Attitude Ball: %s" % ("On" if attitude_shader_enabled else "Off")
+	attitude_shader_button.text = "On" if attitude_shader_enabled else "Off"
+	shader_hint.text = "Turn passes off if the image gets too heavy. Press Esc or Close to return."
 
 
 func load_saved_defaults() -> void:
@@ -542,6 +582,10 @@ func _on_help_pressed() -> void:
 	toggle_settings_panel()
 
 
+func _on_shader_panel_pressed() -> void:
+	toggle_shader_panel()
+
+
 func _on_controls_pressed() -> void:
 	toggle_controls_panel()
 
@@ -549,6 +593,26 @@ func _on_controls_pressed() -> void:
 func _on_controls_close_pressed() -> void:
 	if controls_visible:
 		toggle_controls_panel()
+
+
+func _on_shader_close_pressed() -> void:
+	if shader_panel_visible:
+		toggle_shader_panel()
+
+
+func _on_post_fx_pressed() -> void:
+	edge_shader_enabled = not edge_shader_enabled
+	apply_shader_runtime_settings()
+
+
+func _on_blur_fx_pressed() -> void:
+	blur_shader_enabled = not blur_shader_enabled
+	apply_shader_runtime_settings()
+
+
+func _on_attitude_shader_pressed() -> void:
+	attitude_shader_enabled = not attitude_shader_enabled
+	apply_shader_runtime_settings()
 
 
 func _on_fullscreen_pressed() -> void:
@@ -620,6 +684,7 @@ func update_cinematic_overlay() -> void:
 	var hud_alpha: float = 1.0 - cinematic_blend
 	for node in [
 		debug_save_defaults_button,
+		shader_button,
 		help_button,
 		fullscreen_button,
 		top_frame,
@@ -647,7 +712,8 @@ func update_cinematic_overlay() -> void:
 		pause_label,
 		hit_label,
 		settings_panel,
-		controls_panel
+		controls_panel,
+		shader_panel
 	]:
 		if node != null:
 			node.modulate.a = hud_alpha
@@ -699,6 +765,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_shaded_mode()
 			return
 		if event.button_index == JOY_BUTTON_BACK:
+			if shader_panel_visible:
+				toggle_shader_panel()
+				return
 			if controls_visible:
 				toggle_controls_panel()
 			else:
@@ -744,6 +813,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		if shader_panel_visible:
+			toggle_shader_panel()
+			return
 		if controls_visible:
 			toggle_controls_panel()
 			return
@@ -759,6 +831,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
+		if shader_panel_visible:
+			toggle_shader_panel()
+			return
 		if controls_visible:
 			toggle_controls_panel()
 		else:
@@ -1645,18 +1720,26 @@ func update_attitude_indicator_theme() -> void:
 	ball_mesh.radial_segments = 40
 	ball_mesh.rings = 28
 	attitude_ball.mesh = ball_mesh
-	var ball_material := ShaderMaterial.new()
-	ball_material.shader = load("res://shaders/attitude_ball.gdshader")
 	var upper_color := accent.lerp(Color(0.12, 0.62, 1.0), 0.55)
 	var lower_color := accent.lerp(Color(1.0, 0.46, 0.14), 0.72)
 	var line_color := accent.lerp(Color.WHITE, 0.72)
-	ball_material.set_shader_parameter("upper_color", upper_color)
-	ball_material.set_shader_parameter("lower_color", lower_color)
-	ball_material.set_shader_parameter("line_color", line_color)
-	ball_material.set_shader_parameter("accent_color", accent)
-	ball_material.set_shader_parameter("glow_strength", 1.2 if shaded_mode else 1.7)
-	ball_material.set_shader_parameter("alpha_scale", 0.96 if shaded_mode else 0.88)
-	attitude_ball.material_override = ball_material
+	if attitude_shader_enabled:
+		var ball_material := ShaderMaterial.new()
+		ball_material.shader = load("res://shaders/attitude_ball.gdshader")
+		ball_material.set_shader_parameter("upper_color", upper_color)
+		ball_material.set_shader_parameter("lower_color", lower_color)
+		ball_material.set_shader_parameter("line_color", line_color)
+		ball_material.set_shader_parameter("accent_color", accent)
+		ball_material.set_shader_parameter("glow_strength", 1.2 if shaded_mode else 1.7)
+		ball_material.set_shader_parameter("alpha_scale", 0.96 if shaded_mode else 0.88)
+		attitude_ball.material_override = ball_material
+	else:
+		var ball_material := StandardMaterial3D.new()
+		ball_material.albedo_color = upper_color.lerp(lower_color, 0.5)
+		ball_material.emission_enabled = true
+		ball_material.emission = accent * 0.4
+		ball_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		attitude_ball.material_override = ball_material
 	var needle_material := StandardMaterial3D.new()
 	needle_material.albedo_color = accent.lerp(Color.WHITE, 0.18)
 	needle_material.emission_enabled = true
@@ -1800,7 +1883,7 @@ func setup_blur_pass() -> void:
 
 
 func update_overlay_blur() -> void:
-	blur_pass.visible = start_screen_active or paused or settings_visible or controls_visible
+	blur_pass.visible = blur_shader_enabled and (start_screen_active or paused or settings_visible or controls_visible or shader_panel_visible)
 
 
 func get_preset_name(index: int) -> String:
@@ -1829,7 +1912,7 @@ func toggle_shaded_mode() -> void:
 func apply_visual_preset() -> void:
 	if world_environment.environment == null:
 		setup_visual_environment()
-	edge_pass.visible = true
+	edge_pass.visible = edge_shader_enabled
 	update_edge_pass_theme()
 	update_blur_pass_theme()
 	update_attitude_indicator_theme()
@@ -2148,6 +2231,11 @@ func apply_hud_style() -> void:
 	controls_keyboard_text.modulate = hud_color
 	controls_controller_text.modulate = hud_color
 	controls_hint.modulate = accent_color
+	shader_title.modulate = accent_color
+	post_fx_value.modulate = hud_color
+	blur_fx_value.modulate = hud_color
+	attitude_shader_value.modulate = hud_color
+	shader_hint.modulate = accent_color
 	preset_value.modulate = hud_color
 	bloom_value.modulate = hud_color
 	music_value.modulate = hud_color
@@ -2177,6 +2265,7 @@ func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Colo
 	message_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.82), hud_color, 18))
 	settings_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.88), accent_color, 16))
 	controls_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 22))
+	shader_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 18))
 	pause_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), alert_color, 24))
 	start_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 28))
 
@@ -2192,6 +2281,11 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 	for button in [
 		controls_button,
 		controls_close_button,
+		shader_button,
+		shader_close_button,
+		post_fx_button,
+		blur_fx_button,
+		attitude_shader_button,
 		help_button,
 		fullscreen_button,
 		preset_prev_button,
@@ -2485,17 +2579,32 @@ func toggle_settings_panel() -> void:
 	if controls_visible:
 		controls_visible = false
 		controls_panel.visible = false
+	if shader_panel_visible:
+		shader_panel_visible = false
+		shader_panel.visible = false
 	settings_visible = not settings_visible
 	settings_panel.visible = settings_visible
 	update_mouse_mode()
 
 
 func toggle_controls_panel() -> void:
+	if shader_panel_visible:
+		shader_panel_visible = false
+		shader_panel.visible = false
 	if not settings_visible:
 		settings_visible = true
 		settings_panel.visible = true
 	controls_visible = not controls_visible
 	controls_panel.visible = controls_visible
+	update_mouse_mode()
+
+
+func toggle_shader_panel() -> void:
+	if controls_visible:
+		controls_visible = false
+		controls_panel.visible = false
+	shader_panel_visible = not shader_panel_visible
+	shader_panel.visible = shader_panel_visible
 	update_mouse_mode()
 
 
@@ -4182,6 +4291,10 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	debug_save_defaults_button.offset_right = -72.0
 	debug_save_defaults_button.offset_top = margin
 	debug_save_defaults_button.offset_bottom = margin + 28.0
+	shader_button.offset_left = -228.0
+	shader_button.offset_right = -180.0
+	shader_button.offset_top = margin
+	shader_button.offset_bottom = margin + 28.0
 	help_button.offset_left = -174.0
 	help_button.offset_right = -126.0
 	help_button.offset_top = margin
@@ -4197,6 +4310,24 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	settings_panel.offset_right = -margin if compact else -24.0
 	settings_panel.offset_top = margin
 	settings_panel.offset_bottom = min(viewport_size.y - margin, 852.0 if not compact else viewport_size.y - margin)
+	var shader_panel_width: float = min(viewport_size.x - margin * 2.0, 360.0 if not compact else viewport_size.x - margin * 2.0)
+	var shader_panel_height: float = min(viewport_size.y - margin * 2.0, 252.0)
+	shader_panel.offset_left = -shader_panel_width * 0.5
+	shader_panel.offset_right = shader_panel_width * 0.5
+	shader_panel.offset_top = -shader_panel_height * 0.5
+	shader_panel.offset_bottom = shader_panel_height * 0.5
+	shader_close_button.offset_left = shader_panel_width - 104.0
+	shader_close_button.offset_right = shader_panel_width - 20.0
+	post_fx_value.offset_right = shader_panel_width - 126.0
+	post_fx_button.offset_left = shader_panel_width - 124.0
+	post_fx_button.offset_right = shader_panel_width - 20.0
+	blur_fx_value.offset_right = shader_panel_width - 126.0
+	blur_fx_button.offset_left = shader_panel_width - 124.0
+	blur_fx_button.offset_right = shader_panel_width - 20.0
+	attitude_shader_value.offset_right = shader_panel_width - 126.0
+	attitude_shader_button.offset_left = shader_panel_width - 124.0
+	attitude_shader_button.offset_right = shader_panel_width - 20.0
+	shader_hint.offset_right = shader_panel_width - 20.0
 	var controls_width: float = min(viewport_size.x - margin * 2.0, 560.0 if not compact else viewport_size.x - margin * 2.0)
 	var controls_height: float = min(viewport_size.y - margin * 2.0, 440.0 if not compact else viewport_size.y - margin * 2.0)
 	controls_panel.offset_left = -controls_width * 0.5
