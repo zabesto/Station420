@@ -427,6 +427,8 @@ var pause_camera_yaw := 0.0
 var pause_camera_pitch := -0.18
 var idle_input_timer := 0.0
 var cinematic_mode_active := false
+var idle_theme_override_active := false
+var idle_theme_restore_index := 0
 var cinematic_blend := 0.0
 var cinematic_time := 0.0
 var hud_stats_refresh_timer := 0.0
@@ -1189,6 +1191,29 @@ func note_player_activity() -> void:
 	idle_input_timer = 0.0
 	if cinematic_mode_active:
 		cinematic_mode_active = false
+	restore_idle_theme_override()
+
+
+func apply_idle_theme_override() -> void:
+	if idle_theme_override_active or VISUAL_PRESET_COUNT <= 1:
+		return
+	idle_theme_restore_index = visual_preset_index
+	var random_index := idle_theme_restore_index
+	var attempts := 0
+	while random_index == idle_theme_restore_index and attempts < 12:
+		random_index = runtime_rng.randi_range(0, VISUAL_PRESET_COUNT - 1)
+		attempts += 1
+	if random_index == idle_theme_restore_index:
+		return
+	idle_theme_override_active = true
+	set_visual_preset(random_index)
+
+
+func restore_idle_theme_override() -> void:
+	if not idle_theme_override_active:
+		return
+	idle_theme_override_active = false
+	set_visual_preset(idle_theme_restore_index)
 
 
 func update_idle_cinematic(delta: float) -> void:
@@ -1196,11 +1221,14 @@ func update_idle_cinematic(delta: float) -> void:
 	if allow_cinematic:
 		idle_input_timer += delta
 		if idle_input_timer >= CINEMATIC_IDLE_DELAY:
+			if not cinematic_mode_active:
+				apply_idle_theme_override()
 			cinematic_mode_active = true
 			cinematic_time += delta
 	else:
 		idle_input_timer = 0.0
 		cinematic_mode_active = false
+		restore_idle_theme_override()
 		cinematic_time = 0.0
 	var target_blend: float = 1.0 if paused or cinematic_mode_active else 0.0
 	var blend_speed: float = CINEMATIC_BLEND_IN_SPEED if target_blend > cinematic_blend else CINEMATIC_BLEND_OUT_SPEED
