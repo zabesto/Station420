@@ -10,7 +10,13 @@ static func get_radio_tracks() -> Array:
 		{"name": "Deep Relay", "progression": [49.0, 65.41, 73.42, 87.31], "accent": [146.83, 196.0, 220.0, 174.61], "pulse": 0.11},
 		{"name": "Blue Shift", "progression": [69.3, 92.5, 103.83, 82.41], "accent": [277.18, 329.63, 246.94, 220.0], "pulse": 0.133},
 		{"name": "Night Freight", "progression": [41.2, 55.0, 61.74, 73.42], "accent": [123.47, 164.81, 185.0, 146.83], "pulse": 0.098},
-		{"name": "Helios Late", "progression": [58.27, 87.31, 77.78, 116.54], "accent": [233.08, 261.63, 311.13, 196.0], "pulse": 0.152}
+		{"name": "Helios Late", "progression": [58.27, 87.31, 77.78, 116.54], "accent": [233.08, 261.63, 311.13, 196.0], "pulse": 0.152},
+		{"name": "Ion Caravan", "progression": [46.25, 69.3, 58.27, 77.78], "accent": [138.59, 174.61, 207.65, 233.08], "pulse": 0.104},
+		{"name": "Starwake", "progression": [65.41, 98.0, 87.31, 130.81], "accent": [196.0, 261.63, 293.66, 246.94], "pulse": 0.148},
+		{"name": "Port Authority After Dark", "progression": [51.91, 77.78, 69.3, 92.5], "accent": [155.56, 207.65, 233.08, 185.0], "pulse": 0.119},
+		{"name": "Cold Dock Lights", "progression": [43.65, 58.27, 65.41, 73.42], "accent": [130.81, 174.61, 196.0, 155.56], "pulse": 0.094},
+		{"name": "Mercury Static", "progression": [73.42, 110.0, 98.0, 82.41], "accent": [246.94, 329.63, 277.18, 220.0], "pulse": 0.162},
+		{"name": "Lagrange Velvet", "progression": [52.0, 69.3, 82.41, 61.74], "accent": [207.65, 233.08, 261.63, 174.61], "pulse": 0.128}
 	]
 
 

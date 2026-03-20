@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1080" viewBox="0 0 1600 1080">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#04111f"/>
+      <stop offset="100%" stop-color="#02060c"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a1d31"/>
+      <stop offset="100%" stop-color="#07111d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <style>
+      .title { font: 700 38px 'Helvetica Neue', Arial, sans-serif; fill: #dff3ff; }
+      .subtitle { font: 500 18px 'Helvetica Neue', Arial, sans-serif; fill: #88afcc; }
+      .section { font: 700 24px 'Helvetica Neue', Arial, sans-serif; fill: #9dd8ff; }
+      .box-title { font: 700 20px 'Helvetica Neue', Arial, sans-serif; fill: #ecf8ff; }
+      .body { font: 500 15px 'Helvetica Neue', Arial, sans-serif; fill: #b8d2e8; }
+      .small { font: 500 13px 'Helvetica Neue', Arial, sans-serif; fill: #8fb0c7; }
+      .accent { fill: #59b9ff; }
+      .warm { fill: #ff8a63; }
+      .line { stroke: #4fa4dd; stroke-width: 3; fill: none; }
+      .dash { stroke: #6dc2ff; stroke-width: 2; fill: none; stroke-dasharray: 10 8; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1080" fill="url(#bg)"/>
+  <text x="70" y="78" class="title">Station420 Shader Architecture</text>
+  <text x="70" y="112" class="subtitle">How mesh styling, post FX, blur, and the attitude-ball shader combine into the final image</text>
+
+  <g filter="url(#shadow)">
+    <rect x="60" y="150" rx="28" ry="28" width="450" height="780" fill="url(#panel)" stroke="#1e5d89" stroke-width="3"/>
+    <rect x="575" y="150" rx="28" ry="28" width="450" height="780" fill="url(#panel)" stroke="#1e5d89" stroke-width="3"/>
+    <rect x="1090" y="150" rx="28" ry="28" width="450" height="780" fill="url(#panel)" stroke="#1e5d89" stroke-width="3"/>
+  </g>
+
+  <text x="85" y="196" class="section">1. World + Material Stage</text>
+  <text x="600" y="196" class="section">2. Camera + Post Stage</text>
+  <text x="1115" y="196" class="section">3. HUD + Overlay Stage</text>
+
+  <g>
+    <rect x="92" y="230" rx="18" ry="18" width="386" height="148" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="114" y="264" class="box-title">Procedural 3D Scene</text>
+    <text x="114" y="294" class="body">Star, planets, stations, destroyers, projectiles,</text>
+    <text x="114" y="318" class="body">traffic ships, enemy drones, guidance markers.</text>
+    <text x="114" y="354" class="small">Generated in [scripts/main.gd]</text>
+  </g>
+
+  <g>
+    <rect x="92" y="410" rx="18" ry="18" width="386" height="196" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="114" y="444" class="box-title">Mesh Style Resolver</text>
+    <text x="114" y="474" class="body">`apply_mesh_style()` chooses wireframe vs shaded</text>
+    <text x="114" y="498" class="body">materials and colors from role + preset.</text>
+    <text x="114" y="534" class="body">Inputs:</text>
+    <text x="152" y="558" class="body">• `visual_preset_index`</text>
+    <text x="152" y="582" class="body">• `shaded_mode`</text>
+    <text x="152" y="606" class="body">• style role: `player`, `enemy`, `station`, etc.</text>
+  </g>
+
+  <g>
+    <rect x="92" y="638" rx="18" ry="18" width="386" height="258" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="114" y="672" class="box-title">Wireframe / Shaded Materials</text>
+    <text x="114" y="702" class="body">Wireframe mode:</text>
+    <text x="152" y="726" class="body">• Unshaded materials</text>
+    <text x="152" y="750" class="body">• Emission scaled per preset</text>
+    <text x="152" y="774" class="body">• Lowered line boost after latest contrast pass</text>
+    <text x="114" y="814" class="body">Shaded mode:</text>
+    <text x="152" y="838" class="body">• PBR-lite surfaces</text>
+    <text x="152" y="862" class="body">• Emissive highlights on objectives/danger</text>
+  </g>
+
+  <g>
+    <rect x="607" y="230" rx="18" ry="18" width="386" height="168" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="629" y="264" class="box-title">Camera Modes</text>
+    <text x="629" y="294" class="body">Orbit, Chase, Cockpit, plus paused-camera blend.</text>
+    <text x="629" y="330" class="body">`update_camera()` computes gameplay pose, then</text>
+    <text x="629" y="354" class="body">optionally blends toward pause/cinematic poses.</text>
+  </g>
+
+  <g>
+    <rect x="607" y="430" rx="18" ry="18" width="386" height="250" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="629" y="464" class="box-title">Fullscreen Edge Pass</text>
+    <text x="629" y="494" class="body">[shaders/edge_pass.gdshader]</text>
+    <text x="629" y="528" class="body">Pipeline:</text>
+    <text x="667" y="552" class="body">1. Sample `screen_texture`</text>
+    <text x="667" y="576" class="body">2. Run Sobel edge detection</text>
+    <text x="667" y="600" class="body">3. Build halo from offset edge taps</text>
+    <text x="667" y="624" class="body">4. Composite by `effect_mode`</text>
+    <text x="629" y="664" class="small">Modes include Neon Edge, Toon, Glass, Blur, ASCII, Metal Scan</text>
+  </g>
+
+  <g>
+    <rect x="607" y="712" rx="18" ry="18" width="386" height="184" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="629" y="746" class="box-title">Key Runtime Controls</text>
+    <text x="629" y="776" class="body">`threshold` = edge cutoff</text>
+    <text x="629" y="800" class="body">`strength` = edge amount</text>
+    <text x="629" y="824" class="body">`glow_strength` = halo/bloom feel</text>
+    <text x="629" y="848" class="body">`aux_mix` = blur/toon/ascii modifier</text>
+    <text x="629" y="878" class="small">Wireframe defaults were recently reduced to increase contrast.</text>
+  </g>
+
+  <g>
+    <rect x="1122" y="230" rx="18" ry="18" width="386" height="206" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="1144" y="264" class="box-title">Overlay Blur Pass</text>
+    <text x="1144" y="294" class="body">[shaders/overlay_fog.gdshader]</text>
+    <text x="1144" y="330" class="body">Used behind modal UI only:</text>
+    <text x="1182" y="354" class="body">• start screen</text>
+    <text x="1182" y="378" class="body">• pause</text>
+    <text x="1182" y="402" class="body">• settings / controls / shader panel</text>
+    <text x="1144" y="430" class="small">Not part of the core 3D render, but it strongly affects perceived softness.</text>
+  </g>
+
+  <g>
+    <rect x="1122" y="470" rx="18" ry="18" width="386" height="190" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="1144" y="504" class="box-title">Attitude Indicator</text>
+    <text x="1144" y="534" class="body">[scripts/ui/attitude_indicator.gd]</text>
+    <text x="1144" y="570" class="body">2D HUD-drawn horizon / sun marker widget.</text>
+    <text x="1144" y="606" class="body">Theme colors and live state come from</text>
+    <text x="1144" y="630" class="body">`update_attitude_indicator_theme()` + `update_attitude_indicator()`.</text>
+  </g>
+
+  <g>
+    <rect x="1122" y="694" rx="18" ry="18" width="386" height="202" fill="#0c2137" stroke="#2d82bc" stroke-width="2"/>
+    <text x="1144" y="728" class="box-title">HUD Theme Layer</text>
+    <text x="1144" y="758" class="body">`apply_hud_style()` themes:</text>
+    <text x="1182" y="782" class="body">• panels and buttons</text>
+    <text x="1182" y="806" class="body">• pause/start cards</text>
+    <text x="1182" y="830" class="body">• sliders and labels</text>
+    <text x="1182" y="854" class="body">• cockpit overlay + cinematic bars</text>
+  </g>
+
+  <path class="line" d="M478 304 C540 304, 560 304, 607 304"/>
+  <path class="line" d="M478 512 C540 512, 560 512, 607 512"/>
+  <path class="line" d="M478 770 C540 770, 560 770, 607 770"/>
+  <path class="line" d="M993 545 C1055 545, 1070 545, 1122 545"/>
+  <path class="line" d="M993 790 C1055 790, 1070 790, 1122 790"/>
+
+  <path class="dash" d="M800 398 L800 430"/>
+  <path class="dash" d="M1315 436 L1315 470"/>
+
+  <circle cx="518" cy="304" r="8" class="accent"/>
+  <circle cx="518" cy="512" r="8" class="accent"/>
+  <circle cx="518" cy="770" r="8" class="accent"/>
+  <circle cx="1033" cy="545" r="8" class="accent"/>
+  <circle cx="1033" cy="790" r="8" class="accent"/>
+
+  <text x="640" y="1010" class="subtitle">Files to inspect: scripts/main.gd, shaders/edge_pass.gdshader, shaders/overlay_fog.gdshader, scripts/ui/attitude_indicator.gd</text>
+  <text x="640" y="1040" class="small">Diagram reflects current repo structure after the HUD theme and wireframe contrast passes.</text>
+</svg>

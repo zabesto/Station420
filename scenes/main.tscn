@@ -775,6 +775,94 @@ offset_bottom = 44.0
 tooltip_text = "Show keyboard and controller bindings"
 text = "Controls"
 
+[node name="DisplayTabButton" type="Button" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 52.0
+offset_right = 92.0
+offset_bottom = 82.0
+tooltip_text = "Show display and theme settings"
+text = "Display"
+
+[node name="AudioTabButton" type="Button" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 98.0
+offset_top = 52.0
+offset_right = 172.0
+offset_bottom = 82.0
+tooltip_text = "Show audio settings"
+text = "Audio"
+
+[node name="FlightTabButton" type="Button" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 178.0
+offset_top = 52.0
+offset_right = 252.0
+offset_bottom = 82.0
+tooltip_text = "Show flight settings"
+text = "Flight"
+
+[node name="RenderTabButton" type="Button" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 258.0
+offset_top = 52.0
+offset_right = 332.0
+offset_bottom = 82.0
+tooltip_text = "Show render settings"
+text = "Render"
+
+[node name="DisplayGroup" type="Panel" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 92.0
+offset_right = 320.0
+offset_bottom = 220.0
+
+[node name="DisplayGroupTitle" type="Label" parent="CanvasLayer/HUD/SettingsPanel/DisplayGroup"]
+offset_left = 14.0
+offset_top = 10.0
+offset_right = 190.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 12
+text = "Display + Theme"
+
+[node name="AudioGroup" type="Panel" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 92.0
+offset_right = 320.0
+offset_bottom = 230.0
+
+[node name="AudioGroupTitle" type="Label" parent="CanvasLayer/HUD/SettingsPanel/AudioGroup"]
+offset_left = 14.0
+offset_top = 10.0
+offset_right = 190.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 12
+text = "Audio"
+
+[node name="FlightGroup" type="Panel" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 92.0
+offset_right = 320.0
+offset_bottom = 288.0
+
+[node name="FlightGroupTitle" type="Label" parent="CanvasLayer/HUD/SettingsPanel/FlightGroup"]
+offset_left = 14.0
+offset_top = 10.0
+offset_right = 190.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 12
+text = "Flight + Navigation"
+
+[node name="RenderGroup" type="Panel" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 92.0
+offset_right = 320.0
+offset_bottom = 398.0
+
+[node name="RenderGroupTitle" type="Label" parent="CanvasLayer/HUD/SettingsPanel/RenderGroup"]
+offset_left = 14.0
+offset_top = 10.0
+offset_right = 190.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 12
+text = "Render Tuning"
+
 [node name="PresetValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
 offset_top = 52.0

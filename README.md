@@ -182,8 +182,9 @@ After deploy, verify from a real browser:
 - `scenes/main.tscn`: main scene, HUD, and camera setup
 - `scripts/main.gd`: world generation, HUD logic, shaders, audio, AI, autopilot
 - `scripts/player.gd`: ship movement, cockpit visuals, thrusters, trail
+- `scripts/ui/attitude_indicator.gd`: 2D attitude / nav indicator widget
+- `scripts/ui/tactical_map.gd`: themed tactical map widget
 - `shaders/edge_pass.gdshader`: fullscreen shader lab post-process
-- `shaders/attitude_ball.gdshader`: navball / gyro instrument shader
 - `shaders/overlay_fog.gdshader`: overlay shader used behind modal screens
 
 ## Notes

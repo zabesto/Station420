@@ -4,7 +4,6 @@ const SHIP_VISUAL_SCALE := 1.6
 const ENGINE_AUDIO_MIX_RATE := 22050
 const CONTROLLER_DEADZONE := 0.18
 const CONTROLLER_LOOK_DEADZONE := 0.28
-const MOUSE_LOOK_PRIORITY_TIME := 0.35
 
 @export var forward_thrust := 240.0
 @export var reverse_thrust := 150.0
@@ -20,8 +19,6 @@ const MOUSE_LOOK_PRIORITY_TIME := 0.35
 @export var controller_look_speed := Vector2(2.2, 1.6)
 @export var controller_look_response := 10.0
 @export var roll_speed := 1.9
-@export var banking_angle := 0.24
-@export var pitch_angle := 0.12
 @export var arena_limit := Vector3(8400, 1800, 8400)
 
 @onready var visual: MeshInstance3D = $Visual
@@ -42,9 +39,9 @@ var yaw := 0.0
 var pitch := 0.0
 var roll := 0.0
 var look_input := Vector2.ZERO
-var mouse_look_priority_timer := 0.0
 var controller_look_state := Vector2.ZERO
 var touch_look_state := Vector2.ZERO
+var keyboard_look_active := false
 var forward_thrust_amount := 0.0
 var reverse_thrust_amount := 0.0
 var control_lock := false
@@ -137,11 +134,14 @@ func _physics_process(delta: float) -> void:
 		update_trail(delta)
 		return
 
-	mouse_look_priority_timer = max(mouse_look_priority_timer - delta, 0.0)
+	keyboard_look_active = false
 	if not control_lock:
 		apply_keyboard_look(delta)
 		apply_controller_look(delta)
 		apply_touch_look(delta)
+		yaw += look_input.x
+		pitch = clamp(pitch + look_input.y, -0.95, 0.95)
+		look_input = Vector2.ZERO
 	else:
 		look_input = Vector2.ZERO
 		controller_look_state = controller_look_state.lerp(Vector2.ZERO, min(delta * controller_look_response, 1.0))
@@ -176,7 +176,6 @@ func _physics_process(delta: float) -> void:
 
 func apply_look_input(delta_x: float, delta_y: float) -> void:
 	look_input += Vector2(-delta_x * mouse_sensitivity, -delta_y * mouse_sensitivity)
-	mouse_look_priority_timer = MOUSE_LOOK_PRIORITY_TIME
 
 
 func apply_keyboard_look(delta: float) -> void:
@@ -194,10 +193,14 @@ func apply_keyboard_look(delta: float) -> void:
 	if Input.is_key_pressed(KEY_E):
 		roll -= roll_speed * delta
 	roll = wrapf(roll, -PI, PI)
+	keyboard_look_active = keyboard_look.length() > 0.001
 	look_input += keyboard_look
 
 
 func apply_controller_look(delta: float) -> void:
+	if keyboard_look_active:
+		controller_look_state = controller_look_state.lerp(Vector2.ZERO, min(delta * controller_look_response, 1.0))
+		return
 	var joypad := get_primary_joypad()
 	if joypad != -1:
 		var steer_x := apply_deadzone(Input.get_joy_axis(joypad, JOY_AXIS_LEFT_X))
@@ -207,18 +210,12 @@ func apply_controller_look(delta: float) -> void:
 	else:
 		controller_look_state = controller_look_state.lerp(Vector2.ZERO, min(delta * controller_look_response, 1.0))
 	look_input += controller_look_state * delta
-	yaw += look_input.x
-	pitch = clamp(pitch + look_input.y, -0.95, 0.95)
-	look_input = Vector2.ZERO
 
 
 func apply_touch_look(delta: float) -> void:
 	if touch_look_state.length() <= 0.001:
 		return
 	look_input += Vector2(-touch_look_state.x * controller_look_speed.x, -touch_look_state.y * controller_look_speed.y) * delta
-	yaw += look_input.x
-	pitch = clamp(pitch + look_input.y, -0.95, 0.95)
-	look_input = Vector2.ZERO
 
 
 func set_gravity_acceleration(value: Vector3) -> void:

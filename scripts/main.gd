@@ -1,6 +1,9 @@
 extends Node3D
 
 const BuildInfo = preload("res://scripts/build_info.gd")
+const TRIPPY_SURFACE_SHADER = preload("res://shaders/trippy_surface.gdshader")
+const TacticalMapScript = preload("res://scripts/ui/tactical_map.gd")
+const AttitudeIndicatorScript = preload("res://scripts/ui/attitude_indicator.gd")
 
 const SYSTEM_SCALE := 35.0
 const STATION_SCALE := 8.0
@@ -23,7 +26,7 @@ const CHASE_PITCH_TARGET := -0.14
 const PHONE_LAYOUT_BREAKPOINT := 760.0
 const PORTRAIT_LAYOUT_BREAKPOINT := 1.05
 const SHOW_DEBUG_SAVE_BUTTON := false
-const VISUAL_PRESET_COUNT := 5
+const VISUAL_PRESET_COUNT := 6
 const CINEMATIC_IDLE_DELAY := 60.0
 const CINEMATIC_BLEND_IN_SPEED := 0.42
 const CINEMATIC_BLEND_OUT_SPEED := 1.8
@@ -47,6 +50,12 @@ const ENEMY_FIELD_RESPAWN_MIN_DISTANCE := 1200.0
 const ENEMY_AMBUSH_WAKE_RADIUS := 900.0
 const ENEMY_FIELD_PATROL_RADIUS := 82.0
 const ENEMY_FIELD_PATROL_SPEED := 68.0
+const PIRATE_WAKE_RADIUS := 2200.0
+const PIRATE_DISENGAGE_RADIUS := 3400.0
+const PIRATE_PATROL_RADIUS := 420.0
+const PIRATE_PATROL_SPEED := 74.0
+const PIRATE_TAUNT_MIN_INTERVAL := 8.0
+const PIRATE_TAUNT_MAX_INTERVAL := 16.0
 const PLAYER_MAX_HULL := 100.0
 const PLAYER_MAX_SHIELDS := 100.0
 const SHIELD_RECHARGE_RATE := 10.0
@@ -131,7 +140,42 @@ const PLANET_LAYOUT := [
 		"radius": 48.0,
 		"color": Color(0.78, 1.0, 0.72),
 		"orbit_tint": Color(0.52, 0.9, 0.46),
-		"tilt": -0.02
+		"tilt": -0.02,
+		"atmosphere_color": Color(0.68, 1.0, 0.76, 0.2),
+		"storm_color": Color(0.92, 1.0, 0.84, 0.85),
+		"storm_bands": 2,
+		"storm_cells": 3,
+		"weather_spin": 0.11
+	},
+	{
+		"name": "Tempest",
+		"orbit_radius": 2860.0,
+		"phase": 2.35,
+		"mass": 24600.0,
+		"radius": 74.0,
+		"color": Color(0.4, 0.82, 1.0),
+		"orbit_tint": Color(0.28, 0.7, 1.0),
+		"tilt": 0.08,
+		"atmosphere_color": Color(0.52, 0.88, 1.0, 0.24),
+		"storm_color": Color(0.9, 0.98, 1.0, 0.9),
+		"storm_bands": 4,
+		"storm_cells": 6,
+		"weather_spin": 0.22
+	},
+	{
+		"name": "Brim",
+		"orbit_radius": 3320.0,
+		"phase": 0.94,
+		"mass": 31200.0,
+		"radius": 92.0,
+		"color": Color(0.96, 0.68, 0.34),
+		"orbit_tint": Color(0.92, 0.54, 0.22),
+		"tilt": -0.06,
+		"atmosphere_color": Color(1.0, 0.78, 0.42, 0.2),
+		"storm_color": Color(1.0, 0.92, 0.74, 0.88),
+		"storm_bands": 5,
+		"storm_cells": 5,
+		"weather_spin": 0.16
 	}
 ]
 
@@ -156,6 +200,8 @@ const STATION_LAYOUT := [
 @onready var fullscreen_button: Button = $CanvasLayer/HUD/FullscreenButton
 @onready var cinematic_top_bar: ColorRect = $CanvasLayer/HUD/CinematicTopBar
 @onready var cinematic_bottom_bar: ColorRect = $CanvasLayer/HUD/CinematicBottomBar
+@onready var backdrop_top: ColorRect = $CanvasLayer/HUD/BackdropTop
+@onready var backdrop_bottom: ColorRect = $CanvasLayer/HUD/BackdropBottom
 @onready var dock_label: Label = $CanvasLayer/HUD/DockLabel
 @onready var cargo_label: Label = $CanvasLayer/HUD/CargoLabel
 @onready var objective_label: Label = $CanvasLayer/HUD/ObjectiveLabel
@@ -183,13 +229,13 @@ const STATION_LAYOUT := [
 @onready var dock_value: Label = $CanvasLayer/HUD/LeftFrame/DockValue
 @onready var route_value: Label = $CanvasLayer/HUD/LeftFrame/RouteValue
 @onready var scanner_value: Label = $CanvasLayer/HUD/LeftFrame/ScannerValue
+@onready var combat_title: Label = $CanvasLayer/HUD/RightFrame/CombatTitle
 @onready var combat_value: Label = $CanvasLayer/HUD/RightFrame/CombatValue
 @onready var build_value: Label = $CanvasLayer/HUD/RightFrame/BuildValue
 @onready var message_value: Label = $CanvasLayer/HUD/MessageFrame/MessageValue
 @onready var alert_value: Label = $CanvasLayer/HUD/TopFrame/AlertValue
 @onready var hit_value: Label = $CanvasLayer/HUD/TopFrame/HitValue
 @onready var attitude_viewport: SubViewport = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport
-@onready var attitude_root: Node3D = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot
 @onready var attitude_display: TextureRect = $CanvasLayer/HUD/AttitudeFrame/AttitudeDisplay
 @onready var attitude_ball: MeshInstance3D = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot/AttitudeBall
 @onready var attitude_needle: MeshInstance3D = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot/AttitudeNeedle
@@ -199,6 +245,18 @@ const STATION_LAYOUT := [
 @onready var settings_panel: Panel = $CanvasLayer/HUD/SettingsPanel
 @onready var settings_title: Label = $CanvasLayer/HUD/SettingsPanel/SettingsTitle
 @onready var controls_button: Button = $CanvasLayer/HUD/SettingsPanel/ControlsButton
+@onready var display_tab_button: Button = $CanvasLayer/HUD/SettingsPanel/DisplayTabButton
+@onready var audio_tab_button: Button = $CanvasLayer/HUD/SettingsPanel/AudioTabButton
+@onready var flight_tab_button: Button = $CanvasLayer/HUD/SettingsPanel/FlightTabButton
+@onready var render_tab_button: Button = $CanvasLayer/HUD/SettingsPanel/RenderTabButton
+@onready var display_group: Panel = $CanvasLayer/HUD/SettingsPanel/DisplayGroup
+@onready var display_group_title: Label = $CanvasLayer/HUD/SettingsPanel/DisplayGroup/DisplayGroupTitle
+@onready var audio_group: Panel = $CanvasLayer/HUD/SettingsPanel/AudioGroup
+@onready var audio_group_title: Label = $CanvasLayer/HUD/SettingsPanel/AudioGroup/AudioGroupTitle
+@onready var flight_group: Panel = $CanvasLayer/HUD/SettingsPanel/FlightGroup
+@onready var flight_group_title: Label = $CanvasLayer/HUD/SettingsPanel/FlightGroup/FlightGroupTitle
+@onready var render_group: Panel = $CanvasLayer/HUD/SettingsPanel/RenderGroup
+@onready var render_group_title: Label = $CanvasLayer/HUD/SettingsPanel/RenderGroup/RenderGroupTitle
 @onready var preset_value: Label = $CanvasLayer/HUD/SettingsPanel/PresetValue
 @onready var preset_prev_button: Button = $CanvasLayer/HUD/SettingsPanel/PresetPrevButton
 @onready var preset_next_button: Button = $CanvasLayer/HUD/SettingsPanel/PresetNextButton
@@ -255,6 +313,7 @@ var nearby_station: Area3D = null
 var dock_count := 0
 var station_order: Array[Area3D] = []
 var station_nodes_by_name := {}
+var pirate_stations: Array[Area3D] = []
 var traffic_ships: Array[Node3D] = []
 var selected_target_station_name := ""
 var shipping_lane_nodes: Array[MeshInstance3D] = []
@@ -273,6 +332,7 @@ var star_flare_nodes: Array[MeshInstance3D] = []
 var sunlight: DirectionalLight3D
 var planet_bodies := []
 var planet_nodes_by_name := {}
+var planet_weather_effects: Array[Dictionary] = []
 var world_root: Node3D
 var enemy_target_marker: MeshInstance3D
 var enemy_target_lead_marker: MeshInstance3D
@@ -313,11 +373,13 @@ var boot_screen_time := 0.0
 var settings_visible := false
 var controls_visible := false
 var shader_panel_visible := false
+var settings_tab_index := 0
 var visual_preset_index := 0
 var shaded_mode := false
 var bloom_enabled := false
 var music_enabled := true
 var sfx_enabled := true
+var speech_synthesis_enabled := true
 var music_volume := 0.72
 var sfx_volume := 0.85
 var invert_y_axis := false
@@ -341,6 +403,7 @@ var autopilot_doppler_mix := 0.0
 var autopilot_doppler_current_rate := 0.0
 var autopilot_doppler_current_mix := 0.0
 var radio_chatter_timer := 18.0
+var pirate_taunt_timer := 9.0
 var autopilot_comms_stage := 0
 var autopilot_rate_status_band := -1
 var camera_mode := 0
@@ -353,18 +416,23 @@ var orbit_dragging := false
 var camera_manual_input_timer := 0.0
 var first_person_yaw := 0.0
 var first_person_pitch := 0.0
+var pause_camera_blend := 0.0
+var pause_camera_time := 0.0
+var pause_camera_distance := 22.0
+var pause_camera_yaw := 0.0
+var pause_camera_pitch := -0.18
 var idle_input_timer := 0.0
 var cinematic_mode_active := false
 var cinematic_blend := 0.0
 var cinematic_time := 0.0
 var hud_stats_refresh_timer := 0.0
+var fps_display := 0.0
 var last_viewport_size := Vector2.ZERO
 var objective_marker_base_mesh: Mesh
 var enemy_target_marker_base_mesh: Mesh
 var enemy_target_lead_base_mesh: Mesh
-var attitude_ring: MeshInstance3D
-var attitude_crosshair: MeshInstance3D
-var attitude_sun_marker: MeshInstance3D
+var attitude_indicator_widget: Control
+var tactical_map_radius_current := 12000.0
 var touch_controls_root: Control
 var touch_move_pad: Control
 var touch_move_knob: ColorRect
@@ -378,6 +446,7 @@ var touch_dock_button: Button
 var touch_target_button: Button
 var touch_up_button: Button
 var touch_down_button: Button
+var tactical_map: Control
 var touch_move_pointer := -1
 var touch_look_pointer := -1
 var touch_move_axis := Vector2.ZERO
@@ -385,10 +454,20 @@ var touch_look_axis := Vector2.ZERO
 var touch_vertical_axis := 0.0
 var touch_fire_held := false
 var touch_phone_layout_active := false
+var touch_device_active := false
+var settings_label_refresh_timer := 0.0
+var cinematic_overlay_nodes: Array[CanvasItem] = []
+var settings_tab_groups: Array[Control] = []
+var settings_tab_buttons: Array[Button] = []
+var utility_buttons: Array[Button] = []
+var runtime_rng := RandomNumberGenerator.new()
+var cached_ship_gravity := Vector3.ZERO
+var cached_ship_gravity_magnitude := 0.0
 
 
 func _ready() -> void:
 	configure_window_for_platform()
+	runtime_rng.randomize()
 	player.call("set_world_limit", WORLD_LIMIT)
 	alert_label.text = ""
 	hit_label.text = ""
@@ -419,6 +498,7 @@ func _ready() -> void:
 	create_planets()
 	create_stations()
 	create_ringworld_station()
+	create_pirate_hideouts()
 	create_shipping_lanes()
 	create_navigation_beacons()
 	create_destroyer_fleet()
@@ -440,7 +520,45 @@ func _ready() -> void:
 		get_window().size_changed.connect(_on_window_size_changed)
 	player.call("set_camera_view", camera_mode)
 	connect_settings_controls()
+	setup_tactical_map()
 	create_touch_controls()
+	cinematic_overlay_nodes = [
+		debug_save_defaults_button,
+		shader_button,
+		help_button,
+		fullscreen_button,
+		top_frame,
+		attitude_frame,
+		left_frame,
+		right_frame,
+		message_frame,
+		reticle,
+		cockpit_overlay,
+		title_label,
+		dock_label,
+		cargo_label,
+		objective_label,
+		scanner_label,
+		message_label,
+		combat_label,
+		alert_label,
+		start_card,
+		start_label,
+		start_sub_label,
+		start_status_label,
+		start_progress_frame,
+		start_hint_label,
+		pause_card,
+		pause_label,
+		hit_label,
+		touch_controls_root,
+		settings_panel,
+		controls_panel,
+		shader_panel
+	]
+	settings_tab_groups = [display_group, audio_group, flight_group, render_group]
+	settings_tab_buttons = [display_tab_button, audio_tab_button, flight_tab_button, render_tab_button]
+	utility_buttons = [fullscreen_button, help_button, shader_button, debug_save_defaults_button]
 	update_responsive_hud_layout(true)
 	update_window_controls()
 
@@ -449,6 +567,7 @@ func _ready() -> void:
 	update_combat_label()
 	update_build_label()
 	update_settings_label()
+	settings_label_refresh_timer = 0.12
 	update_status("Press Enter to launch.\nMouse steers. Use Space to fire and Esc to pause once you are underway.")
 	update_mouse_mode()
 
@@ -476,7 +595,7 @@ func sync_mobile_web_content_scale() -> void:
 	if window_size.x <= 0 or window_size.y <= 0:
 		return
 	var is_phone_like: bool = window_size.x <= 900 or float(window_size.y) / max(float(window_size.x), 1.0) >= PORTRAIT_LAYOUT_BREAKPOINT
-	var target_size: Vector2i = window_size if is_phone_like else Vector2i(1600, 900)
+	var target_size: Vector2i = window_size if is_phone_like else Vector2i(1920, 1080)
 	if window.content_scale_size != target_size:
 		window.content_scale_size = target_size
 
@@ -497,6 +616,10 @@ func _exit_tree() -> void:
 func connect_settings_controls() -> void:
 	shader_button.pressed.connect(_on_shader_panel_pressed)
 	controls_button.pressed.connect(_on_controls_pressed)
+	display_tab_button.pressed.connect(_on_display_tab_pressed)
+	audio_tab_button.pressed.connect(_on_audio_tab_pressed)
+	flight_tab_button.pressed.connect(_on_flight_tab_pressed)
+	render_tab_button.pressed.connect(_on_render_tab_pressed)
 	controls_close_button.pressed.connect(_on_controls_close_pressed)
 	shader_close_button.pressed.connect(_on_shader_close_pressed)
 	post_fx_button.pressed.connect(_on_post_fx_pressed)
@@ -531,6 +654,7 @@ func connect_settings_controls() -> void:
 	edge_glow_slider.value = edge_glow_scale * 100.0
 	blur_amount_slider.value = wire_shader_scale * 100.0
 	shader_aux_slider.value = blur_strength_scale * 100.0
+	apply_settings_tab_visibility()
 
 
 func create_touch_controls() -> void:
@@ -586,6 +710,19 @@ func create_touch_controls() -> void:
 	touch_down_button.button_down.connect(_on_touch_down_down)
 	touch_down_button.button_up.connect(_on_touch_down_up)
 	update_touch_controls_visibility()
+
+
+func setup_tactical_map() -> void:
+	if DisplayServer.get_name() == "headless" or right_frame == null or tactical_map != null:
+		return
+	tactical_map = Control.new()
+	tactical_map.name = "TacticalMap"
+	tactical_map.set_script(TacticalMapScript)
+	right_frame.add_child(tactical_map)
+	right_frame.move_child(tactical_map, 1)
+	combat_title.text = "TACTICAL MAP"
+	combat_value.visible = false
+	apply_hud_style()
 
 
 func make_touch_pad(label_text: String) -> Panel:
@@ -653,6 +790,36 @@ func update_shader_panel_labels() -> void:
 	attitude_shader_value.text = "Attitude Ball: %s" % ("On" if attitude_shader_enabled else "Off")
 	attitude_shader_button.text = "On" if attitude_shader_enabled else "Off"
 	shader_hint.text = "Turn passes off if the image gets too heavy. Press Esc or Close to return."
+
+
+func set_settings_tab(index: int) -> void:
+	settings_tab_index = clamp(index, 0, 3)
+	apply_settings_tab_visibility()
+	update_responsive_hud_layout(true)
+
+
+func apply_settings_tab_visibility() -> void:
+	for i in range(settings_tab_groups.size()):
+		var group: Control = settings_tab_groups[i]
+		if group != null:
+			group.visible = i == settings_tab_index
+	for i in range(settings_tab_buttons.size()):
+		var button: Button = settings_tab_buttons[i]
+		if button == null:
+			continue
+		button.text = ("[%s]" if i == settings_tab_index else "%s") % get_settings_tab_name(i)
+
+
+func get_settings_tab_name(index: int) -> String:
+	match index:
+		1:
+			return "Audio"
+		2:
+			return "Flight"
+		3:
+			return "Render"
+		_:
+			return "Display"
 
 
 func load_saved_defaults() -> void:
@@ -738,6 +905,22 @@ func _on_shader_panel_pressed() -> void:
 	toggle_shader_panel()
 
 
+func _on_display_tab_pressed() -> void:
+	set_settings_tab(0)
+
+
+func _on_audio_tab_pressed() -> void:
+	set_settings_tab(1)
+
+
+func _on_flight_tab_pressed() -> void:
+	set_settings_tab(2)
+
+
+func _on_render_tab_pressed() -> void:
+	set_settings_tab(3)
+
+
 func _on_controls_pressed() -> void:
 	toggle_controls_panel()
 
@@ -780,15 +963,19 @@ func _process(delta: float) -> void:
 	update_alert(delta)
 	update_hit_feedback(delta)
 	if settings_visible:
-		update_settings_label()
-	update_debug_overlay()
+		settings_label_refresh_timer = max(settings_label_refresh_timer - delta, 0.0)
+		if settings_label_refresh_timer == 0.0:
+			update_settings_label()
+			settings_label_refresh_timer = 0.12
 	update_overlay_blur()
 	update_attitude_indicator()
 	update_touch_controls_visibility()
 	update_touch_player_input()
 	camera_manual_input_timer = max(camera_manual_input_timer - delta, 0.0)
+	update_pause_camera(delta)
 	update_idle_cinematic(delta)
 	if paused:
+		update_camera(delta)
 		return
 	if touch_fire_held:
 		try_fire_player_projectile()
@@ -802,13 +989,17 @@ func _process(delta: float) -> void:
 	update_objective_visuals(delta)
 	update_enemy_target_marker()
 	update_station_navigation_lights()
+	update_planet_weather_effects(delta)
 	update_station_spin(delta)
 	update_destroyer_fleet(delta)
 	update_traffic_ships(delta)
 	hud_stats_refresh_timer = max(hud_stats_refresh_timer - delta, 0.0)
 	if hud_stats_refresh_timer == 0.0:
+		update_debug_overlay()
 		update_scanner()
 		update_combat_label()
+		update_tactical_map()
+		update_build_label()
 		hud_stats_refresh_timer = 0.12
 
 
@@ -829,7 +1020,7 @@ func update_idle_cinematic(delta: float) -> void:
 		idle_input_timer = 0.0
 		cinematic_mode_active = false
 		cinematic_time = 0.0
-	var target_blend: float = 1.0 if cinematic_mode_active else 0.0
+	var target_blend: float = 1.0 if paused or cinematic_mode_active else 0.0
 	var blend_speed: float = CINEMATIC_BLEND_IN_SPEED if target_blend > cinematic_blend else CINEMATIC_BLEND_OUT_SPEED
 	cinematic_blend = move_toward(cinematic_blend, target_blend, delta * blend_speed)
 	if cinematic_blend <= 0.001 and not cinematic_mode_active:
@@ -839,49 +1030,23 @@ func update_idle_cinematic(delta: float) -> void:
 
 func update_cinematic_overlay() -> void:
 	var hud_alpha: float = 1.0 - cinematic_blend
-	for node in [
-		debug_save_defaults_button,
-		shader_button,
-		help_button,
-		fullscreen_button,
-		top_frame,
-		attitude_frame,
-		left_frame,
-		right_frame,
-		message_frame,
-		reticle,
-		cockpit_overlay,
-		title_label,
-		dock_label,
-		cargo_label,
-		objective_label,
-		scanner_label,
-		message_label,
-		combat_label,
-		alert_label,
-		start_card,
-		start_label,
-		start_sub_label,
-		start_status_label,
-		start_progress_frame,
-		start_hint_label,
-		pause_card,
-		pause_label,
-		hit_label,
-		touch_controls_root,
-		settings_panel,
-		controls_panel,
-		shader_panel
-	]:
+	for node in cinematic_overlay_nodes:
 		if node != null:
 			node.modulate.a = hud_alpha
 	cinematic_top_bar.visible = cinematic_blend > 0.001
 	cinematic_bottom_bar.visible = cinematic_blend > 0.001
 	cinematic_top_bar.modulate.a = cinematic_blend
 	cinematic_bottom_bar.modulate.a = cinematic_blend
-	cinematic_top_bar.size.y = CINEMATIC_BAR_HEIGHT * cinematic_blend
-	cinematic_bottom_bar.position.y = get_viewport().get_visible_rect().size.y - CINEMATIC_BAR_HEIGHT * cinematic_blend
-	cinematic_bottom_bar.size.y = CINEMATIC_BAR_HEIGHT * cinematic_blend
+	if backdrop_top != null:
+		backdrop_top.modulate.a = hud_alpha
+	if backdrop_bottom != null:
+		backdrop_bottom.modulate.a = hud_alpha
+	var top_cover_height: float = max(CINEMATIC_BAR_HEIGHT, backdrop_top.size.y if backdrop_top != null else 0.0)
+	var bottom_cover_height: float = max(CINEMATIC_BAR_HEIGHT, backdrop_bottom.size.y if backdrop_bottom != null else 0.0)
+	cinematic_top_bar.position.y = 0.0
+	cinematic_top_bar.size.y = top_cover_height * cinematic_blend
+	cinematic_bottom_bar.position.y = get_viewport().get_visible_rect().size.y - bottom_cover_height * cinematic_blend
+	cinematic_bottom_bar.size.y = bottom_cover_height * cinematic_blend
 
 
 func _physics_process(delta: float) -> void:
@@ -889,7 +1054,9 @@ func _physics_process(delta: float) -> void:
 		return
 
 	simulate_planets(delta)
-	player.call("set_gravity_acceleration", compute_ship_gravity() * SHIP_GRAVITY_SCALE)
+	cached_ship_gravity = compute_ship_gravity()
+	cached_ship_gravity_magnitude = cached_ship_gravity.length()
+	player.call("set_gravity_acceleration", cached_ship_gravity * SHIP_GRAVITY_SCALE)
 	if update_autopilot(delta):
 		update_effects(delta)
 		return
@@ -903,6 +1070,10 @@ func _physics_process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch or event is InputEventScreenDrag:
+		if not touch_device_active:
+			touch_device_active = true
+			update_responsive_hud_layout(true)
 	if touch_phone_layout_active and touch_controls_root != null and touch_controls_root.visible:
 		if handle_touch_controls_input(event):
 			get_viewport().set_input_as_handled()
@@ -1063,6 +1234,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.keycode == KEY_5:
 			set_visual_preset(4)
+			return
+		if event.keycode == KEY_6:
+			set_visual_preset(5)
 			return
 		if event.keycode == KEY_B:
 			toggle_bloom()
@@ -1300,6 +1474,7 @@ func create_planets() -> void:
 		mark_mesh_solid_only(planet_solid)
 		register_style_mesh(planet_solid, "planet", planet_data["color"])
 		root.add_child(planet_solid)
+		create_planet_weather_effects(root, planet_data, planet_radius)
 
 		var orbit_ring := MeshInstance3D.new()
 		orbit_ring.mesh = build_ring_mesh(orbit_radius, 96)
@@ -1338,6 +1513,82 @@ func create_planets() -> void:
 		}
 		planet_bodies.append(body)
 		planet_nodes_by_name[planet_data["name"]] = root
+
+
+func create_planet_weather_effects(root: Node3D, planet_data: Dictionary, planet_radius: float) -> void:
+	if not planet_data.has("atmosphere_color") and not planet_data.has("storm_color"):
+		return
+	var weather_root := Node3D.new()
+	weather_root.name = "%sWeather" % str(planet_data["name"])
+	root.add_child(weather_root)
+
+	var atmosphere_shell := MeshInstance3D.new()
+	var shell_mesh := SphereMesh.new()
+	shell_mesh.radius = planet_radius * 1.08
+	shell_mesh.height = planet_radius * 2.16
+	shell_mesh.radial_segments = 24
+	shell_mesh.rings = 12
+	atmosphere_shell.mesh = shell_mesh
+	var atmosphere_material := StandardMaterial3D.new()
+	atmosphere_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	atmosphere_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	atmosphere_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	atmosphere_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	atmosphere_material.albedo_color = planet_data.get("atmosphere_color", Color(1.0, 1.0, 1.0, 0.14))
+	atmosphere_material.emission_enabled = true
+	atmosphere_material.emission = Color(atmosphere_material.albedo_color.r, atmosphere_material.albedo_color.g, atmosphere_material.albedo_color.b) * 0.5
+	atmosphere_shell.material_override = atmosphere_material
+	weather_root.add_child(atmosphere_shell)
+
+	var storm_bands: Array[MeshInstance3D] = []
+	var band_count := int(planet_data.get("storm_bands", 0))
+	for band_index in range(band_count):
+		var band := MeshInstance3D.new()
+		var band_radius := planet_radius * (0.84 + 0.08 * band_index)
+		band.mesh = build_ring_mesh(band_radius, 72)
+		register_style_mesh(band, "danger", planet_data.get("storm_color", Color.WHITE))
+		band.rotation = Vector3(
+			deg_to_rad(-38.0 + band_index * 19.0),
+			deg_to_rad(planet_radius * 0.02 + band_index * 31.0),
+			deg_to_rad(12.0 + band_index * 17.0)
+		)
+		weather_root.add_child(band)
+		storm_bands.append(band)
+
+	var storm_cells: Array[MeshInstance3D] = []
+	var storm_count := int(planet_data.get("storm_cells", 0))
+	for storm_index in range(storm_count):
+		var cell := MeshInstance3D.new()
+		var cell_mesh := SphereMesh.new()
+		var cell_radius := planet_radius * (0.08 + 0.018 * float(storm_index % 3))
+		cell_mesh.radius = cell_radius
+		cell_mesh.height = cell_radius * 2.0
+		cell.mesh = cell_mesh
+		var cell_material := StandardMaterial3D.new()
+		cell_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		cell_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		cell_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		cell_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		var storm_color: Color = planet_data.get("storm_color", Color.WHITE)
+		cell_material.albedo_color = Color(storm_color.r, storm_color.g, storm_color.b, 0.2)
+		cell_material.emission_enabled = true
+		cell_material.emission = Color(storm_color.r, storm_color.g, storm_color.b) * 1.1
+		cell.material_override = cell_material
+		var angle: float = TAU * float(storm_index) / max(float(storm_count), 1.0) + float(planet_data.get("phase", 0.0)) * 0.4
+		var elevation: float = lerp(-0.55, 0.55, float(storm_index + 1) / float(storm_count + 1))
+		var shell_radius := planet_radius * 0.92
+		cell.position = Vector3(cos(angle) * shell_radius, elevation * shell_radius, sin(angle) * shell_radius)
+		cell.set_meta("pulse_phase", angle * 1.7)
+		weather_root.add_child(cell)
+		storm_cells.append(cell)
+
+	planet_weather_effects.append({
+		"root": weather_root,
+		"atmosphere": atmosphere_shell,
+		"storm_bands": storm_bands,
+		"storm_cells": storm_cells,
+		"spin_rate": float(planet_data.get("weather_spin", 0.08))
+	})
 
 
 func create_stations() -> void:
@@ -1467,6 +1718,132 @@ func create_ringworld_station() -> void:
 
 	station_order.append(station)
 	station_nodes_by_name["Eidolon Ring"] = station
+
+
+func create_pirate_hideouts() -> void:
+	var outer_planet := planet_nodes_by_name.get("Aster", null) as Node3D
+	if outer_planet == null:
+		return
+	var hideouts := [
+		{
+			"name": "Black Invoice",
+			"offset": Vector3(1180.0, 260.0, -1420.0),
+			"station_color": Color(0.92, 0.48, 0.34),
+			"dock_color": Color(1.0, 0.84, 0.42),
+			"field_radius": 620.0,
+			"field_spread": 180.0,
+			"pirates": ["Captain Tax Evasion", "Knuckles Mercy", "Auntie Hullbreach"]
+		},
+		{
+			"name": "Rust Garden",
+			"offset": Vector3(-1540.0, -180.0, 1680.0),
+			"station_color": Color(0.88, 0.62, 0.32),
+			"dock_color": Color(0.96, 0.9, 0.48),
+			"field_radius": 780.0,
+			"field_spread": 240.0,
+			"pirates": ["Minty Vane", "Quartermaster Bluster", "Six-Gun Spreadsheet"]
+		}
+	]
+	for hideout_data in hideouts:
+		var anchor := Node3D.new()
+		anchor.name = "%sAnchor" % hideout_data["name"]
+		anchor.position = hideout_data["offset"]
+		outer_planet.add_child(anchor)
+
+		var field := MeshInstance3D.new()
+		field.mesh = build_debris_belt_mesh(float(hideout_data["field_radius"]), float(hideout_data["field_spread"]), 84)
+		register_style_mesh(field, "danger", Color(0.86, 0.72, 0.52, 0.78))
+		field.rotation = Vector3(0.24, 0.65, 0.12)
+		anchor.add_child(field)
+
+		var station := Area3D.new()
+		station.name = str(hideout_data["name"])
+		station.collision_layer = 0
+		station.collision_mask = 1
+		station.set_meta("station_name", hideout_data["name"])
+		station.set_meta("planet_name", "Aster")
+		station.set_meta("dock_offset", Vector3(0, 0, 220))
+		station.set_meta("collision_radius", STATION_COLLISION_RADIUS)
+		station.set_meta("spin_speed", randf_range(0.09, 0.18))
+		station.set_meta("pirate_hideout", true)
+		station.body_entered.connect(_on_station_body_entered.bind(station))
+		station.body_exited.connect(_on_station_body_exited.bind(station))
+		anchor.add_child(station)
+
+		var collision := CollisionShape3D.new()
+		var shape := SphereShape3D.new()
+		shape.radius = STATION_COLLISION_RADIUS
+		collision.shape = shape
+		station.add_child(collision)
+
+		var wireframe := MeshInstance3D.new()
+		wireframe.mesh = build_station_mesh(18.0 * STATION_SCALE)
+		mark_mesh_wireframe_only(wireframe)
+		register_style_mesh(wireframe, "danger", hideout_data["station_color"])
+		station.add_child(wireframe)
+
+		var station_solid := MeshInstance3D.new()
+		station_solid.mesh = build_station_solid_mesh(18.0 * STATION_SCALE)
+		mark_mesh_solid_only(station_solid)
+		register_style_mesh(station_solid, "danger", hideout_data["station_color"])
+		station.add_child(station_solid)
+
+		var dock_marker := MeshInstance3D.new()
+		dock_marker.position = Vector3(0, 0, 220)
+		dock_marker.mesh = build_dock_marker_mesh(18.0)
+		register_style_mesh(dock_marker, "objective", hideout_data["dock_color"])
+		station.add_child(dock_marker)
+
+		var station_label := Label3D.new()
+		station_label.position = Vector3(0, 148.0, 0)
+		station_label.text = "%s\npirate haven" % str(hideout_data["name"])
+		station_label.font_size = 32
+		station_label.no_depth_test = true
+		register_style_label(station_label, "danger", Color.WHITE)
+		station.add_child(station_label)
+		add_station_navigation_lights(station, 18.0 * STATION_SCALE)
+
+		pirate_stations.append(station)
+		create_pirate_raiders(station, hideout_data["pirates"])
+
+
+func create_pirate_raiders(station: Area3D, pirate_names: Array) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	for pirate_name in pirate_names:
+		var enemy := Node3D.new()
+		enemy.name = str(pirate_name)
+		var angle: float = rng.randf_range(0.0, TAU)
+		var radius: float = rng.randf_range(PIRATE_PATROL_RADIUS * 0.42, PIRATE_PATROL_RADIUS)
+		var local_offset: Vector3 = Vector3(cos(angle) * radius, rng.randf_range(-120.0, 120.0), sin(angle) * radius)
+		enemy.position = station.position + local_offset
+		enemy.set_meta("velocity", Vector3.ZERO)
+		enemy.set_meta("hull", ENEMY_MAX_HULL * 1.15)
+		enemy.set_meta("fire_cooldown", rng.randf_range(0.6, 1.2))
+		enemy.set_meta("orbit_bias", rng.randf_range(-1.0, 1.0))
+		enemy.set_meta("ambush_mode", false)
+		enemy.set_meta("field_center", station.position)
+		enemy.set_meta("field_anchor", enemy.position)
+		enemy.set_meta("patrol_phase", rng.randf_range(0.0, TAU))
+		enemy.set_meta("pirate_guard", true)
+		enemy.set_meta("pirate_station", station)
+		enemy.set_meta("pirate_name", str(pirate_name))
+		enemy.set_meta("pirate_chasing", false)
+
+		var mesh := MeshInstance3D.new()
+		mesh.mesh = build_enemy_ship_mesh()
+		mark_mesh_wireframe_only(mesh)
+		register_style_mesh(mesh, "danger", Color(1.0, 0.58, 0.34))
+		enemy.add_child(mesh)
+
+		var solid_mesh := MeshInstance3D.new()
+		solid_mesh.mesh = build_enemy_solid_mesh()
+		mark_mesh_solid_only(solid_mesh)
+		register_style_mesh(solid_mesh, "danger", Color(1.0, 0.58, 0.34))
+		enemy.add_child(solid_mesh)
+
+		add_child(enemy)
+		enemy_nodes.append(enemy)
 
 
 func create_shipping_lanes() -> void:
@@ -1696,9 +2073,7 @@ func update_traffic_ships(delta: float) -> void:
 		var target: Vector3 = ship.get_meta("traffic_target", ship.global_position)
 		var to_target: Vector3 = target - ship.global_position
 		if to_target.length() < 140.0:
-			var rng := RandomNumberGenerator.new()
-			rng.randomize()
-			assign_traffic_destination(ship, rng)
+			assign_traffic_destination(ship, runtime_rng)
 			target = ship.get_meta("traffic_target", ship.global_position)
 			to_target = target - ship.global_position
 		var desired_velocity := Vector3.ZERO
@@ -2007,42 +2382,35 @@ func get_autopilot_state_display() -> String:
 
 
 func setup_attitude_indicator() -> void:
-	attitude_viewport.msaa_3d = Viewport.MSAA_4X
-	attitude_display.texture = attitude_viewport.get_texture()
-	attitude_viewport.size = Vector2i(256, 256)
-	attitude_viewport.transparent_bg = true
-
-	var needle_mesh := BoxMesh.new()
-	needle_mesh.size = Vector3(5.2, 0.16, 0.16)
-	attitude_needle.mesh = needle_mesh
-	attitude_needle.position = Vector3(0.0, 0.0, 3.45)
-	attitude_ring = MeshInstance3D.new()
-	attitude_ring.name = "AttitudeRing"
-	attitude_ring.mesh = build_attitude_ring_mesh(3.55, 48)
-	attitude_root.add_child(attitude_ring)
-	attitude_crosshair = MeshInstance3D.new()
-	attitude_crosshair.name = "AttitudeCrosshair"
-	attitude_crosshair.mesh = build_attitude_crosshair_mesh(3.25)
-	attitude_root.add_child(attitude_crosshair)
-	attitude_sun_marker = MeshInstance3D.new()
-	attitude_sun_marker.name = "AttitudeSunMarker"
-	attitude_sun_marker.mesh = build_attitude_sun_marker_mesh()
-	attitude_root.add_child(attitude_sun_marker)
+	attitude_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	attitude_display.visible = false
+	attitude_ball.visible = false
+	attitude_needle.visible = false
+	if attitude_indicator_widget == null and DisplayServer.get_name() != "headless":
+		var widget := Control.new()
+		widget.name = "AttitudeIndicator2D"
+		widget.set_script(AttitudeIndicatorScript)
+		widget.anchor_right = 1.0
+		widget.anchor_bottom = 1.0
+		attitude_frame.add_child(widget)
+		attitude_indicator_widget = widget
 	update_attitude_indicator_theme()
 
 
 func update_attitude_indicator() -> void:
-	if attitude_ball == null:
+	if attitude_indicator_widget == null or not is_instance_valid(attitude_indicator_widget):
 		return
 	var ship_basis: Basis = player.call("get_visual_basis")
 	var reference_basis := get_attitude_reference_basis()
 	var relative_basis := reference_basis.inverse() * ship_basis.orthonormalized()
-	attitude_ball.transform.basis = relative_basis.orthonormalized()
-	attitude_needle.transform.basis = Basis.IDENTITY
-	attitude_ring.transform.basis = Basis.IDENTITY
-	attitude_crosshair.transform.basis = Basis.IDENTITY
-	attitude_sun_marker.transform.basis = Basis.IDENTITY
-	attitude_sun_marker.position = Vector3(0.0, 3.18, 0.0)
+	var roll_angle: float = atan2(relative_basis.y.x, relative_basis.y.y)
+	var pitch_normalized: float = clampf(relative_basis.z.y, -1.0, 1.0)
+	var sun_direction: Vector3 = Vector3.UP
+	if star_node != null and is_instance_valid(star_node):
+		sun_direction = (star_node.global_position - player.global_position).normalized()
+	var local_sun: Vector3 = ship_basis.inverse() * sun_direction
+	var sun_angle: float = atan2(local_sun.x, -local_sun.y)
+	attitude_indicator_widget.call("set_indicator_state", roll_angle, pitch_normalized, sun_angle, attitude_shader_enabled)
 
 
 func get_attitude_reference_basis() -> Basis:
@@ -2064,140 +2432,14 @@ func get_attitude_reference_basis() -> Basis:
 
 
 func update_attitude_indicator_theme() -> void:
-	if attitude_ball == null or attitude_needle == null:
+	if attitude_indicator_widget == null or not is_instance_valid(attitude_indicator_widget):
 		return
 	var accent := resolve_style_color("objective", Color(0.55, 0.95, 1.0))
-	var hull_tint := resolve_style_color("player", Color(0.45, 0.88, 1.0))
-	attitude_display.modulate = Color(1, 1, 1, 0.96)
-	var ball_mesh := SphereMesh.new()
-	ball_mesh.radius = 3.1
-	ball_mesh.height = 6.2
-	ball_mesh.radial_segments = 40
-	ball_mesh.rings = 28
-	attitude_ball.mesh = ball_mesh
+	var hud := resolve_style_color("hud", Color(0.78, 0.92, 1.0))
 	var upper_color := accent.lerp(Color(0.12, 0.62, 1.0), 0.55)
 	var lower_color := accent.lerp(Color(1.0, 0.46, 0.14), 0.72)
-	var line_color := accent.lerp(Color.WHITE, 0.72)
-	if attitude_shader_enabled:
-		var ball_material := ShaderMaterial.new()
-		ball_material.shader = load("res://shaders/attitude_ball.gdshader")
-		ball_material.set_shader_parameter("upper_color", upper_color)
-		ball_material.set_shader_parameter("lower_color", lower_color)
-		ball_material.set_shader_parameter("line_color", line_color)
-		ball_material.set_shader_parameter("accent_color", accent)
-		ball_material.set_shader_parameter("glow_strength", 1.2 if shaded_mode else 1.7)
-		ball_material.set_shader_parameter("alpha_scale", 0.96 if shaded_mode else 0.88)
-		attitude_ball.material_override = ball_material
-	else:
-		var ball_material := StandardMaterial3D.new()
-		ball_material.albedo_color = upper_color.lerp(lower_color, 0.5)
-		ball_material.emission_enabled = true
-		ball_material.emission = accent * 0.4
-		ball_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		attitude_ball.material_override = ball_material
-	var needle_material := StandardMaterial3D.new()
-	needle_material.albedo_color = accent.lerp(Color.WHITE, 0.18)
-	needle_material.emission_enabled = true
-	needle_material.emission = accent * (0.8 if shaded_mode else 1.35)
-	needle_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	attitude_needle.material_override = needle_material
-	var frame_material := StandardMaterial3D.new()
-	frame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	frame_material.albedo_color = Color(accent.r, accent.g, accent.b, 0.92)
-	frame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	frame_material.emission_enabled = true
-	frame_material.emission = accent * (1.1 if shaded_mode else 1.45)
-	if attitude_ring != null:
-		attitude_ring.material_override = frame_material
-	if attitude_crosshair != null:
-		attitude_crosshair.material_override = frame_material
-	if attitude_sun_marker != null:
-		var sun_material := StandardMaterial3D.new()
-		sun_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		sun_material.albedo_color = accent.lerp(Color(1.0, 0.92, 0.58), 0.62)
-		sun_material.emission_enabled = true
-		sun_material.emission = sun_material.albedo_color * 1.35
-		sun_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		attitude_sun_marker.material_override = sun_material
-
-
-func build_attitude_wire_mesh(radius: float, segments: int) -> ArrayMesh:
-	var vertices := PackedVector3Array()
-	for axis in [0, 1, 2]:
-		for i in range(segments):
-			var a0 := TAU * float(i) / float(segments)
-			var a1 := TAU * float(i + 1) / float(segments)
-			var p0 := Vector3.ZERO
-			var p1 := Vector3.ZERO
-			match axis:
-				0:
-					p0 = Vector3(0.0, cos(a0) * radius, sin(a0) * radius)
-					p1 = Vector3(0.0, cos(a1) * radius, sin(a1) * radius)
-				1:
-					p0 = Vector3(cos(a0) * radius, 0.0, sin(a0) * radius)
-					p1 = Vector3(cos(a1) * radius, 0.0, sin(a1) * radius)
-				_:
-					p0 = Vector3(cos(a0) * radius, sin(a0) * radius, 0.0)
-					p1 = Vector3(cos(a1) * radius, sin(a1) * radius, 0.0)
-			vertices.append(p0)
-			vertices.append(p1)
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
-	return mesh
-
-
-func build_attitude_ring_mesh(radius: float, segments: int) -> ArrayMesh:
-	var vertices := PackedVector3Array()
-	for i in range(segments):
-		var a0 := TAU * float(i) / float(segments)
-		var a1 := TAU * float(i + 1) / float(segments)
-		vertices.append(Vector3(cos(a0) * radius, sin(a0) * radius, 0.0))
-		vertices.append(Vector3(cos(a1) * radius, sin(a1) * radius, 0.0))
-	for tick_index in range(8):
-		var tick_angle := TAU * float(tick_index) / 8.0
-		var outer := Vector3(cos(tick_angle) * radius, sin(tick_angle) * radius, 0.0)
-		var inner := Vector3(cos(tick_angle) * (radius - 0.42), sin(tick_angle) * (radius - 0.42), 0.0)
-		vertices.append(inner)
-		vertices.append(outer)
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
-	return mesh
-
-
-func build_attitude_crosshair_mesh(radius: float) -> ArrayMesh:
-	var vertices := PackedVector3Array([
-		Vector3(-radius, 0.0, 0.0), Vector3(-1.15, 0.0, 0.0),
-		Vector3(1.15, 0.0, 0.0), Vector3(radius, 0.0, 0.0),
-		Vector3(0.0, -radius, 0.0), Vector3(0.0, -1.15, 0.0),
-		Vector3(0.0, 1.15, 0.0), Vector3(0.0, radius, 0.0)
-	])
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
-	return mesh
-
-
-func build_attitude_sun_marker_mesh() -> ArrayMesh:
-	var vertices := PackedVector3Array([
-		Vector3(-0.42, 0.0, 0.0), Vector3(0.42, 0.0, 0.0),
-		Vector3(0.0, -0.42, 0.0), Vector3(0.0, 0.42, 0.0),
-		Vector3(-0.28, -0.28, 0.0), Vector3(0.28, 0.28, 0.0),
-		Vector3(-0.28, 0.28, 0.0), Vector3(0.28, -0.28, 0.0)
-	])
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
-	return mesh
+	var sun_color := accent.lerp(Color(1.0, 0.92, 0.58), 0.62)
+	attitude_indicator_widget.call("set_theme_colors", hud, accent, upper_color, lower_color, sun_color)
 
 
 func update_alert(delta: float) -> void:
@@ -2239,6 +2481,14 @@ func setup_blur_pass() -> void:
 
 func update_overlay_blur() -> void:
 	blur_pass.visible = blur_shader_enabled and (start_screen_active or paused or settings_visible or controls_visible or shader_panel_visible)
+
+
+func update_overlay_button_visibility() -> void:
+	var show_utilities := not (settings_visible or controls_visible or shader_panel_visible)
+	fullscreen_button.visible = show_utilities and not (touch_device_active and OS.has_feature("web"))
+	help_button.visible = show_utilities
+	shader_button.visible = show_utilities
+	debug_save_defaults_button.visible = SHOW_DEBUG_SAVE_BUTTON and show_utilities and not touch_phone_layout_active
 
 
 func handle_touch_controls_input(event: InputEvent) -> bool:
@@ -2330,7 +2580,7 @@ func reset_touch_pad_knob(pad: Control, knob: ColorRect) -> void:
 func update_touch_controls_visibility() -> void:
 	if touch_controls_root == null:
 		return
-	var show_controls: bool = touch_phone_layout_active and not paused and not start_screen_active and not settings_visible and not controls_visible and not shader_panel_visible and not game_over_state
+	var show_controls: bool = touch_device_active and not paused and not start_screen_active and not settings_visible and not controls_visible and not shader_panel_visible and not game_over_state
 	touch_controls_root.visible = show_controls
 	if not show_controls:
 		reset_touch_controls_state()
@@ -2356,7 +2606,7 @@ func reset_touch_controls_state() -> void:
 func update_touch_player_input() -> void:
 	if player == null:
 		return
-	if not touch_phone_layout_active or touch_controls_root == null or not touch_controls_root.visible:
+	if not touch_device_active or touch_controls_root == null or not touch_controls_root.visible:
 		player.call("set_touch_move_input", Vector3.ZERO)
 		player.call("set_touch_look_input", Vector2.ZERO)
 		player.call("set_touch_boost", false)
@@ -2370,7 +2620,7 @@ func layout_touch_controls(viewport_size: Vector2, margin: float, is_phone_portr
 	if touch_controls_root == null:
 		return
 	update_touch_controls_visibility()
-	if not touch_phone_layout_active:
+	if not touch_device_active:
 		return
 
 	var pad_size: float = min(228.0 if is_phone_portrait else 186.0, max(164.0, viewport_size.x * (0.39 if is_phone_portrait else 0.24)))
@@ -2485,6 +2735,8 @@ func get_preset_name(index: int) -> String:
 			return "Hologram Drift"
 		4:
 			return "Cobalt Neon"
+		5:
+			return "Trippy Prism"
 		_:
 			return "Deep Space"
 
@@ -2537,6 +2789,13 @@ func apply_visual_preset() -> void:
 			environment.fog_enabled = false
 			environment.fog_light_color = Color(0.08, 0.4, 0.92)
 			environment.fog_density = 0.0
+		5:
+			environment.background_color = Color(0.01, 0.015, 0.035)
+			environment.ambient_light_color = Color(0.36, 0.72, 1.0)
+			environment.ambient_light_energy = 0.5
+			environment.fog_enabled = false
+			environment.fog_light_color = Color(0.18, 0.54, 1.0)
+			environment.fog_density = 0.0
 		_:
 			environment.background_color = Color(0.005, 0.008, 0.014)
 			environment.ambient_light_color = Color(0.46, 0.52, 0.62)
@@ -2547,11 +2806,11 @@ func apply_visual_preset() -> void:
 	environment.glow_intensity = 0.92 if bloom_enabled else 0.0
 	environment.glow_strength = 1.12 if bloom_enabled else 0.0
 	environment.glow_bloom = 0.22 if bloom_enabled else 0.0
-	environment.tonemap_exposure = 1.18 if shaded_mode else (1.1 if visual_preset_index == 1 else 1.0)
+	environment.tonemap_exposure = 1.06 if visual_preset_index == 5 else (1.18 if shaded_mode else (1.1 if visual_preset_index == 1 else 1.0))
 
 	if sunlight != null:
 		sunlight.visible = shaded_mode
-		sunlight.light_energy = 1.85 if shaded_mode else 0.0
+		sunlight.light_energy = (1.2 if visual_preset_index == 5 else 1.85) if shaded_mode else 0.0
 
 	for node in get_tree().get_nodes_in_group("style_mesh"):
 		apply_mesh_style(node)
@@ -2580,6 +2839,9 @@ func update_edge_pass_theme() -> void:
 		4:
 			tint = Color(0.38, 0.76, 1.0)
 			halo_radius = 2.22
+		5:
+			tint = Color(0.16, 0.74, 1.0)
+			halo_radius = 2.38
 		_:
 			tint = Color(0.84, 0.92, 1.0)
 			halo_radius = 1.95
@@ -2587,6 +2849,11 @@ func update_edge_pass_theme() -> void:
 	var mode_threshold := 0.16 + edge_strength_scale * (0.22 if shaded_mode else 0.12)
 	var mode_strength := 0.74 + edge_threshold * (0.9 if shaded_mode else 0.42 + wire_shader_scale * 0.22)
 	var mode_glow := 0.14 + edge_glow_scale * (0.95 if shaded_mode else 0.32 + wire_shader_scale * 0.18)
+	if visual_preset_index == 5:
+		darken = 0.04 if shaded_mode else 0.05
+		mode_threshold = 0.12 + edge_strength_scale * (0.18 if shaded_mode else 0.09)
+		mode_strength += 0.1
+		mode_glow += 0.08
 	edge_material.set_shader_parameter("effect_mode", shader_mode_index)
 	edge_material.set_shader_parameter("edge_tint", Vector3(tint.r, tint.g, tint.b))
 	edge_material.set_shader_parameter("threshold", mode_threshold)
@@ -2611,6 +2878,8 @@ func update_blur_pass_theme() -> void:
 			tint = Color(0.05, 0.22, 0.18, 0.1)
 		4:
 			tint = Color(0.04, 0.14, 0.32, 0.1)
+		5:
+			tint = Color(0.02, 0.08, 0.2, 0.08)
 		_:
 			tint = Color(0.08, 0.12, 0.2, 0.08)
 	blur_material.set_shader_parameter("fog_density", blur_strength_scale * 0.18)
@@ -2659,7 +2928,7 @@ func apply_label_style(label: Label3D) -> void:
 	label.modulate = resolve_style_color(role, base_color)
 
 
-func build_style_material(role: String, base_color: Color, render_variant: String = "both") -> StandardMaterial3D:
+func build_style_material(role: String, base_color: Color, render_variant: String = "both") -> Material:
 	var material := StandardMaterial3D.new()
 	var color := resolve_style_color(role, base_color)
 	material.albedo_color = color
@@ -2674,6 +2943,8 @@ func build_style_material(role: String, base_color: Color, render_variant: Strin
 			material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 			material.albedo_color = color.lerp(Color(1.0, 0.72, 0.18), 0.18)
 		return material
+	if visual_preset_index == 5 and role in ["world", "player", "enemy", "target", "station", "danger", "objective", "dock"]:
+		return build_trippy_style_material(role, color, render_variant)
 	if shaded_mode:
 		if role == "station":
 			material.albedo_color = color.lerp(Color(0.72, 0.78, 0.86), 0.78)
@@ -2701,6 +2972,8 @@ func build_style_material(role: String, base_color: Color, render_variant: Strin
 				line_boost = 1.26
 			4:
 				line_boost = 1.18
+			5:
+				line_boost = 1.16
 			_:
 				line_boost = 1.08
 		material.emission = color * line_boost
@@ -2709,6 +2982,34 @@ func build_style_material(role: String, base_color: Color, render_variant: Strin
 	if visual_preset_index == 3 and role not in ["enemy", "danger"] and not is_shaded_solid:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		material.albedo_color.a = 0.72 if shaded_mode else 0.58
+	return material
+
+
+func build_trippy_style_material(role: String, color: Color, render_variant: String) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = TRIPPY_SURFACE_SHADER
+	var accent := color.lerp(Color(0.04, 0.68, 1.0, color.a), 0.48)
+	if role in ["enemy", "danger"]:
+		accent = color.lerp(Color(0.36, 0.96, 1.0, color.a), 0.24)
+	elif role in ["objective", "dock", "target"]:
+		accent = color.lerp(Color(0.82, 1.0, 1.0, color.a), 0.34)
+	var is_wire := not shaded_mode or render_variant == "wire"
+	var pulse := 0.54
+	var glow := 1.05
+	if role in ["enemy", "danger"]:
+		pulse = 0.72
+		glow = 1.2
+	elif role in ["objective", "dock", "target"]:
+		pulse = 0.64
+		glow = 1.14
+	material.set_shader_parameter("base_color", color)
+	material.set_shader_parameter("accent_color", accent)
+	material.set_shader_parameter("pulse_strength", pulse)
+	material.set_shader_parameter("glow_strength", glow)
+	material.set_shader_parameter("pattern_scale", 0.05 if is_wire else 0.03)
+	material.set_shader_parameter("rim_strength", 1.1 if is_wire else 0.82)
+	material.set_shader_parameter("wire_mix", 1.0 if is_wire else 0.0)
+	material.set_shader_parameter("alpha_strength", 0.96 if is_wire else 1.0)
 	return material
 
 
@@ -2746,6 +3047,14 @@ func resolve_style_color(role: String, base_color: Color) -> Color:
 			if role == "lane":
 				return base_color.lerp(Color(0.46, 0.76, 1.0, base_color.a), 0.18)
 			return base_color.lerp(Color(0.42, 0.72, 1.0), 0.26)
+		5:
+			if role in ["enemy", "danger", "alert"]:
+				return Color(0.68, 0.96, 1.0)
+			if role in ["target", "objective", "dock"]:
+				return Color(0.86, 0.98, 1.0)
+			if role == "lane":
+				return base_color.lerp(Color(0.48, 0.88, 1.0, base_color.a), 0.24)
+			return base_color.lerp(Color(0.34, 0.76, 1.0), 0.34)
 		_:
 			if role in ["enemy", "danger", "alert"]:
 				return Color(1.0, 0.4, 0.32)
@@ -2809,6 +3118,10 @@ func apply_hud_style() -> void:
 			hud_color = Color(0.78, 0.9, 1.0)
 			accent_color = Color(0.4, 0.72, 1.0)
 			alert_color = Color(1.0, 0.58, 0.44)
+		5:
+			hud_color = Color(0.78, 0.92, 1.0)
+			accent_color = Color(0.24, 0.74, 1.0)
+			alert_color = Color(0.76, 0.98, 1.0)
 		_:
 			hud_color = Color(0.84, 0.9, 1.0)
 			accent_color = Color(0.96, 0.98, 1.0)
@@ -2843,8 +3156,8 @@ func apply_hud_style() -> void:
 	reticle.modulate = accent_color
 	cockpit_mode_label.modulate = accent_color
 	cockpit_overlay.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
-	pause_card.modulate = Color(alert_color.r, alert_color.g, alert_color.b, 0.98)
-	pause_label.modulate = accent_color
+	pause_card.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
+	pause_label.modulate = hud_color
 	start_card.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
 	start_label.modulate = accent_color
 	start_sub_label.modulate = hud_color
@@ -2855,6 +3168,15 @@ func apply_hud_style() -> void:
 	controls_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.96)
 	shader_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.96)
 	settings_title.modulate = accent_color
+	display_group.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.94)
+	audio_group.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.94)
+	flight_group.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.94)
+	render_group.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.94)
+	display_group_title.modulate = accent_color
+	audio_group_title.modulate = accent_color
+	flight_group_title.modulate = accent_color
+	render_group_title.modulate = accent_color
+	combat_title.modulate = accent_color
 	controls_title.modulate = accent_color
 	controls_keyboard_label.modulate = accent_color
 	controls_controller_label.modulate = accent_color
@@ -2881,6 +3203,8 @@ func apply_hud_style() -> void:
 	shader_aux_value.modulate = hud_color
 	settings_hint.modulate = accent_color
 	settings_hotkeys.modulate = hud_color
+	if tactical_map != null and is_instance_valid(tactical_map):
+		tactical_map.call("set_theme_colors", hud_color, accent_color, alert_color)
 	apply_button_styles(hud_color, accent_color, alert_color)
 	apply_slider_theme(hud_color, accent_color)
 	start_progress_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.84), accent_color, 10))
@@ -2895,9 +3219,13 @@ func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Colo
 	right_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.76), accent_color, 20))
 	message_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.82), hud_color, 18))
 	settings_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.88), accent_color, 16))
+	display_group.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.7), hud_color, 14))
+	audio_group.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.7), hud_color, 14))
+	flight_group.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.7), hud_color, 14))
+	render_group.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.7), hud_color, 14))
 	controls_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 22))
 	shader_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 18))
-	pause_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), alert_color, 24))
+	pause_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 24))
 	start_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 28))
 
 	hull_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.1, 0.13, 0.18, 0.92), hud_color.darkened(0.55)))
@@ -2920,6 +3248,10 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 		attitude_shader_button,
 		help_button,
 		fullscreen_button,
+		display_tab_button,
+		audio_tab_button,
+		flight_tab_button,
+		render_tab_button,
 		preset_prev_button,
 		preset_next_button,
 		shader_mode_option,
@@ -2941,6 +3273,10 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 		button.add_theme_color_override("font_hover_color", Color.WHITE)
 		button.add_theme_color_override("font_pressed_color", Color.WHITE)
 		button.add_theme_font_size_override("font_size", 18)
+	for button in [display_tab_button, audio_tab_button, flight_tab_button, render_tab_button]:
+		if button == null:
+			continue
+		button.add_theme_font_size_override("font_size", 13)
 	debug_save_defaults_button.add_theme_stylebox_override("normal", hot_style)
 	debug_save_defaults_button.add_theme_stylebox_override("hover", make_button_stylebox(Color(0.12, 0.08, 0.08, 0.94), alert_color.lightened(0.12)))
 	debug_save_defaults_button.add_theme_stylebox_override("pressed", make_button_stylebox(Color(0.16, 0.1, 0.1, 0.98), alert_color))
@@ -3180,6 +3516,7 @@ func update_settings_label() -> void:
 	var trail_active = player.get("trail_enabled")
 	settings_title.text = "Graphics + Flight"
 	controls_title.text = "Keyboard + Controller"
+	apply_settings_tab_visibility()
 	preset_value.text = "Theme: %s / %s" % [get_preset_name(visual_preset_index), "Shaded" if shaded_mode else "Wireframe"]
 	bloom_value.text = "Bloom: %s" % ("On" if bloom_enabled else "Off")
 	music_value.text = "Music: %s (%d%%)" % ["On" if music_enabled else "Off", int(round(music_volume * 100.0))]
@@ -3194,9 +3531,9 @@ func update_settings_label() -> void:
 	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
 	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
 	settings_hint.text = "Use Controls for keyboard and gamepad bindings. Press H or Back to close."
-	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-5 themes, mouse wheel zoom"
-	controls_keyboard_text.text = "W A S D  move\nR / F  rise / descend\nQ / E  roll / dock\nShift  boost\nSpace  fire\nTab  cycle camera\nV  reset view\nH  help/settings\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nEsc  pause"
-	controls_controller_text.text = "Left stick  steer / pitch\nRight stick  camera look\nRT / LT  thrust / reverse\nA  fire / launch\nY  cycle camera\nB  render mode\nX  cycle AP target\nR3  reset view\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nBack  help/settings\nStart  pause"
+	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-6 themes, mouse wheel zoom"
+	controls_keyboard_text.text = "Flight\nW A S D  move\nR / F  rise / descend\nQ / E  roll / dock\nShift  boost\nSpace  fire\n\nView\nTab  cycle camera\nV  reset view\n\nSystems\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nH  help/settings\nEsc  pause"
+	controls_controller_text.text = "Flight\nLeft stick  steer / pitch\nRT / LT  thrust / reverse\nA  fire / launch\n\nView\nRight stick  camera look\nY  cycle camera\nR3  reset view\n\nSystems\nX  cycle AP target\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nB  render mode\nBack  help/settings\nStart  pause"
 	controls_hint.text = "Close with Esc, H, Back, or the Close button."
 	if shader_mode_option.selected != shader_mode_index:
 		shader_mode_option.selected = shader_mode_index
@@ -3252,16 +3589,38 @@ func toggle_pause() -> void:
 	if autopilot_active and not paused:
 		cancel_autopilot()
 	paused = not paused
+	player.call("set_control_lock", paused)
 	pause_card.visible = paused
 	pause_label.visible = paused
 	if paused:
+		var ship_basis: Basis = player.call("get_visual_basis")
+		var ship_back: Vector3 = ship_basis.z.normalized()
+		pause_camera_time = 0.0
+		pause_camera_yaw = atan2(ship_back.x, ship_back.z)
+		pause_camera_pitch = -0.18 if camera_mode == 2 else clamp(orbit_pitch, -0.34, -0.1)
+		pause_camera_distance = 24.0 if camera_mode == 2 else max(orbit_distance + 4.0, 20.0)
+		pause_camera_blend = 1.0
+		cinematic_blend = 1.0
+		cinematic_mode_active = false
 		pause_label.text = "Paused\nPress Esc to resume"
 		title_label.text = "Paused"
 	else:
+		pause_camera_blend = 0.0
 		title_label.text = "Wireframe System"
+	update_cinematic_overlay()
 	update_camera(0.0)
 	update_mouse_mode()
 	update_touch_controls_visibility()
+
+
+func update_pause_camera(delta: float) -> void:
+	var target_blend: float = 1.0 if paused else 0.0
+	var blend_speed: float = 1.8 if paused else 3.2
+	pause_camera_blend = move_toward(pause_camera_blend, target_blend, delta * blend_speed)
+	if paused:
+		pause_camera_time += delta
+	if not paused and pause_camera_blend <= 0.001:
+		pause_camera_time = 0.0
 
 
 func toggle_settings_panel() -> void:
@@ -3273,6 +3632,10 @@ func toggle_settings_panel() -> void:
 		shader_panel.visible = false
 	settings_visible = not settings_visible
 	settings_panel.visible = settings_visible
+	if settings_visible:
+		update_settings_label()
+		settings_label_refresh_timer = 0.12
+	update_overlay_button_visibility()
 	update_mouse_mode()
 	update_touch_controls_visibility()
 
@@ -3286,6 +3649,7 @@ func toggle_controls_panel() -> void:
 		settings_panel.visible = true
 	controls_visible = not controls_visible
 	controls_panel.visible = controls_visible
+	update_overlay_button_visibility()
 	update_mouse_mode()
 	update_touch_controls_visibility()
 
@@ -3296,6 +3660,7 @@ func toggle_shader_panel() -> void:
 		controls_panel.visible = false
 	shader_panel_visible = not shader_panel_visible
 	shader_panel.visible = shader_panel_visible
+	update_overlay_button_visibility()
 	update_mouse_mode()
 	update_touch_controls_visibility()
 
@@ -3718,12 +4083,67 @@ func update_combat_label() -> void:
 	]
 
 
+func update_tactical_map() -> void:
+	if tactical_map == null or not is_instance_valid(tactical_map):
+		return
+	var ship_basis: Basis = player.call("get_visual_basis")
+	var ship_right := ship_basis.x.normalized()
+	var ship_forward := -ship_basis.z.normalized()
+	var player_pos := player.global_position
+	var target_station := get_target_station()
+	var desired_map_radius := 12000.0
+	if target_station != null and is_instance_valid(target_station):
+		var target_distance: float = player_pos.distance_to(target_station.global_position)
+		desired_map_radius = clampf(target_distance * 1.3, 700.0, 12000.0)
+	tactical_map_radius_current = move_toward(tactical_map_radius_current, desired_map_radius, max(600.0, abs(desired_map_radius - tactical_map_radius_current) * 0.18))
+	var map_radius: float = tactical_map_radius_current
+	var station_markers: Array[Dictionary] = []
+	for station in station_order:
+		if station == null or not is_instance_valid(station):
+			continue
+		var station_name := str(station.get_meta("station_name", ""))
+		station_markers.append({
+			"pos": project_world_to_tactical_map(player_pos, station.global_position, ship_right, ship_forward, map_radius),
+			"target": station_name == selected_target_station_name
+		})
+	var hostile_markers: Array[Dictionary] = []
+	for enemy in enemy_nodes:
+		if enemy == null or not is_instance_valid(enemy):
+			continue
+		hostile_markers.append({
+			"pos": project_world_to_tactical_map(player_pos, enemy.global_position, ship_right, ship_forward, map_radius)
+		})
+	var target_pos := Vector2.ZERO
+	var has_target := false
+	if target_station != null and is_instance_valid(target_station):
+		target_pos = project_world_to_tactical_map(player_pos, target_station.global_position, ship_right, ship_forward, map_radius)
+		has_target = true
+	var star_pos := Vector2.ZERO
+	if star_node != null and is_instance_valid(star_node):
+		star_pos = project_world_to_tactical_map(player_pos, star_node.global_position, ship_right, ship_forward, map_radius)
+	tactical_map.call("set_map_data", star_pos, station_markers, hostile_markers, target_pos, has_target)
+
+
+func project_world_to_tactical_map(origin: Vector3, world_pos: Vector3, ship_right: Vector3, ship_forward: Vector3, map_radius: float) -> Vector2:
+	var delta := world_pos - origin
+	var local := Vector2(delta.dot(ship_right), delta.dot(ship_forward))
+	local /= max(map_radius, 1.0)
+	if local.length() > 0.96:
+		local = local.normalized() * 0.96
+	return Vector2(local.x, -local.y)
+
+
 func update_build_label() -> void:
+	var current_fps: float = Engine.get_frames_per_second()
+	if fps_display <= 0.001:
+		fps_display = current_fps
+	else:
+		fps_display = lerp(fps_display, current_fps, 0.24)
 	var version := str(BuildInfo.BUILD_LABEL)
 	var runtime := "WEB" if OS.has_feature("web") else "DESKTOP"
 	var build_flavor := "DBG" if OS.has_feature("debug") else "REL"
 	var build_number := str(BuildInfo.BUILD_NUMBER)
-	build_value.text = "%s %s  %s\nbuild %s" % [runtime, build_flavor, version, build_number]
+	build_value.text = "%s %s  %s+%s  |  fps %d" % [runtime, build_flavor, version, build_number, int(round(fps_display))]
 
 
 func update_player_combat(delta: float) -> void:
@@ -3796,6 +4216,7 @@ func spawn_enemy(initial_wave: bool = false) -> void:
 
 
 func update_enemy_behavior(delta: float) -> void:
+	pirate_taunt_timer = max(pirate_taunt_timer - delta, 0.0)
 	for i in range(enemy_nodes.size() - 1, -1, -1):
 		var enemy: Node3D = enemy_nodes[i]
 		if not is_instance_valid(enemy):
@@ -3804,6 +4225,9 @@ func update_enemy_behavior(delta: float) -> void:
 
 		var to_player := player.global_position - enemy.global_position
 		var distance := to_player.length()
+		if bool(enemy.get_meta("pirate_guard", false)):
+			update_pirate_raider_behavior(enemy, delta, distance, to_player)
+			continue
 		if enemy.get_meta("ambush_mode", false) and distance > ENEMY_AMBUSH_WAKE_RADIUS:
 			update_enemy_ambush_patrol(enemy, delta)
 			continue
@@ -3902,6 +4326,100 @@ func get_debris_field_spawn(min_player_distance: float, rng: RandomNumberGenerat
 		return float(a["distance"]) > float(b["distance"])
 	)
 	return candidates[rng.randi_range(0, min(1, candidates.size() - 1))]
+
+
+func update_pirate_raider_behavior(enemy: Node3D, delta: float, distance: float, to_player: Vector3) -> void:
+	var station := enemy.get_meta("pirate_station", null) as Area3D
+	if station == null or not is_instance_valid(station):
+		update_enemy_ambush_patrol(enemy, delta)
+		return
+
+	var chasing := bool(enemy.get_meta("pirate_chasing", false))
+	if not chasing and distance <= PIRATE_WAKE_RADIUS:
+		chasing = true
+		enemy.set_meta("pirate_chasing", true)
+		maybe_play_pirate_taunt(enemy)
+	elif chasing and distance >= PIRATE_DISENGAGE_RADIUS:
+		chasing = false
+		enemy.set_meta("pirate_chasing", false)
+
+	if not chasing:
+		update_pirate_raider_patrol(enemy, station, delta)
+		return
+
+	var direction := to_player.normalized() if distance > 0.001 else Vector3.FORWARD
+	var lateral := Vector3(-direction.z, 0, direction.x) * float(enemy.get_meta("orbit_bias", 0.0)) * 68.0
+	var desired_velocity := direction * 168.0 + lateral
+	if distance < 260.0:
+		desired_velocity = -direction * 96.0 + lateral
+	var velocity: Vector3 = enemy.get_meta("velocity", Vector3.ZERO)
+	velocity = velocity.lerp(desired_velocity, min(delta * 1.8, 1.0))
+	velocity += compute_gravity_at_position(enemy.global_position) * delta
+	enemy.set_meta("velocity", velocity)
+	enemy.global_position += velocity * delta
+	if velocity.length() > 2.0:
+		enemy.look_at(enemy.global_position + velocity.normalized(), get_safe_up_vector(velocity.normalized(), Vector3.UP), true)
+
+	var cooldown: float = enemy.get_meta("fire_cooldown", 0.0)
+	cooldown = max(cooldown - delta, 0.0)
+	if distance <= ENEMY_FIRE_RADIUS and cooldown == 0.0 and not game_over_state:
+		spawn_projectile(enemy.global_position - enemy.global_basis.z * 6.0, direction * ENEMY_PROJECTILE_SPEED, false)
+		play_sfx("enemy_fire", -9.0)
+		cooldown = randf_range(0.7, 1.4)
+	enemy.set_meta("fire_cooldown", cooldown)
+	if pirate_taunt_timer == 0.0 and distance < PIRATE_WAKE_RADIUS * 0.72:
+		maybe_play_pirate_taunt(enemy)
+
+
+func update_pirate_raider_patrol(enemy: Node3D, station: Area3D, delta: float) -> void:
+	var phase: float = float(enemy.get_meta("patrol_phase", 0.0)) + delta * 0.72
+	enemy.set_meta("patrol_phase", phase)
+	var radius := PIRATE_PATROL_RADIUS * (0.68 + 0.22 * sin(phase * 0.7 + float(enemy.get_meta("orbit_bias", 0.0))))
+	var target := station.global_position + Vector3(cos(phase) * radius, sin(phase * 0.6) * 120.0, sin(phase) * radius)
+	var desired_velocity := (target - enemy.global_position).normalized() * PIRATE_PATROL_SPEED
+	var velocity: Vector3 = enemy.get_meta("velocity", Vector3.ZERO)
+	velocity = velocity.lerp(desired_velocity, min(delta * 1.6, 1.0))
+	velocity += compute_gravity_at_position(enemy.global_position) * delta
+	enemy.set_meta("velocity", velocity)
+	enemy.global_position += velocity * delta
+	if velocity.length() > 2.0:
+		enemy.look_at(enemy.global_position + velocity.normalized(), get_safe_up_vector(velocity.normalized(), Vector3.UP), true)
+	var cooldown: float = max(float(enemy.get_meta("fire_cooldown", 0.0)) - delta, 0.0)
+	enemy.set_meta("fire_cooldown", cooldown)
+
+
+func maybe_play_pirate_taunt(enemy: Node3D) -> void:
+	if pirate_taunt_timer > 0.0:
+		return
+	var station := enemy.get_meta("pirate_station", null) as Area3D
+	var station_name := "somewhere disreputable"
+	if station != null and is_instance_valid(station):
+		station_name = str(station.get_meta("station_name", station_name))
+	var pirate_name := str(enemy.get_meta("pirate_name", enemy.name))
+	play_radio_message(pirate_name, get_random_pirate_taunt(station_name), "comms_hauler", -11.0)
+	reset_pirate_taunt_timer()
+
+
+func reset_pirate_taunt_timer() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	pirate_taunt_timer = rng.randf_range(PIRATE_TAUNT_MIN_INTERVAL, PIRATE_TAUNT_MAX_INTERVAL)
+
+
+func get_random_pirate_taunt(station_name: String) -> String:
+	var taunts := [
+		"Welcome to %s. Kindly hand over your cargo, your fuel, and whichever brave thought brought you here." % station_name,
+		"That ship looks expensive. Excellent. We adore a customer who arrives pre-looted.",
+		"Easy now, hero. We only want your money, your pride, and maybe the shiny bit bolted to the left side.",
+		"Turn around and we'll only mock your flying. Keep coming and we'll have to become proactive.",
+		"You've wandered into pirate space, which is like normal space but with more initiative and worse bookkeeping.",
+		"Stand by for a complimentary weapons inspection. If anything survives, we'll inspect it twice.",
+		"Lovely silhouette on your ship. Shame if it acquired ventilation.",
+		"We clocked you from half an orbit away. You fly like a tax refund trying to escape customs."
+	]
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	return taunts[rng.randi_range(0, taunts.size() - 1)]
 
 
 func update_enemy_ambush_patrol(enemy: Node3D, delta: float) -> void:
@@ -4212,6 +4730,47 @@ func play_radio_message(speaker: String, body: String, voice_name: String = "com
 	play_sfx(voice_name, volume_db)
 	update_status("%s\n%s" % [speaker, body])
 	set_alert("Comms: %s" % speaker, 0.35)
+	speak_radio_message(speaker, body)
+
+
+func speak_radio_message(speaker: String, body: String) -> void:
+	if not speech_synthesis_enabled or not OS.has_feature("web"):
+		return
+	var message := "%s. %s" % [speaker, body]
+	var script := """
+		(function() {
+			if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+				return false;
+			}
+			const text = %s;
+			if (!text) {
+				return false;
+			}
+			window.speechSynthesis.cancel();
+			const utterance = new SpeechSynthesisUtterance(text);
+			utterance.rate = 1.02;
+			utterance.pitch = 0.92;
+			utterance.volume = 0.72;
+			const voices = window.speechSynthesis.getVoices();
+			const preferred = voices.find((voice) => /en/i.test(voice.lang) && /samantha|ava|karen|daniel|alex/i.test(voice.name))
+				|| voices.find((voice) => /en/i.test(voice.lang))
+				|| null;
+			if (preferred) {
+				utterance.voice = preferred;
+			}
+			window.speechSynthesis.speak(utterance);
+			return true;
+		}())
+	""" % js_quote(message)
+	JavaScriptBridge.eval(script, true)
+
+
+func js_quote(text: String) -> String:
+	var escaped := text.replace("\\", "\\\\")
+	escaped = escaped.replace("\"", "\\\"")
+	escaped = escaped.replace("\n", "\\n")
+	escaped = escaped.replace("\r", "")
+	return "\"" + escaped + "\""
 
 
 func maybe_play_autopilot_station_comms(stage: String, distance_to_target: float, reference_distance: float) -> void:
@@ -4261,7 +4820,13 @@ func get_radio_tracks() -> Array:
 		{"name": "Deep Relay", "progression": [49.0, 65.41, 73.42, 87.31], "accent": [146.83, 196.0, 220.0, 174.61], "pulse": 0.11},
 		{"name": "Blue Shift", "progression": [69.3, 92.5, 103.83, 82.41], "accent": [277.18, 329.63, 246.94, 220.0], "pulse": 0.133},
 		{"name": "Night Freight", "progression": [41.2, 55.0, 61.74, 73.42], "accent": [123.47, 164.81, 185.0, 146.83], "pulse": 0.098},
-		{"name": "Helios Late", "progression": [58.27, 87.31, 77.78, 116.54], "accent": [233.08, 261.63, 311.13, 196.0], "pulse": 0.152}
+		{"name": "Helios Late", "progression": [58.27, 87.31, 77.78, 116.54], "accent": [233.08, 261.63, 311.13, 196.0], "pulse": 0.152},
+		{"name": "Ion Caravan", "progression": [46.25, 69.3, 58.27, 77.78], "accent": [138.59, 174.61, 207.65, 233.08], "pulse": 0.104},
+		{"name": "Starwake", "progression": [65.41, 98.0, 87.31, 130.81], "accent": [196.0, 261.63, 293.66, 246.94], "pulse": 0.148},
+		{"name": "Port Authority After Dark", "progression": [51.91, 77.78, 69.3, 92.5], "accent": [155.56, 207.65, 233.08, 185.0], "pulse": 0.119},
+		{"name": "Cold Dock Lights", "progression": [43.65, 58.27, 65.41, 73.42], "accent": [130.81, 174.61, 196.0, 155.56], "pulse": 0.094},
+		{"name": "Mercury Static", "progression": [73.42, 110.0, 98.0, 82.41], "accent": [246.94, 329.63, 277.18, 220.0], "pulse": 0.162},
+		{"name": "Lagrange Velvet", "progression": [52.0, 69.3, 82.41, 61.74], "accent": [207.65, 233.08, 261.63, 174.61], "pulse": 0.128}
 	]
 
 
@@ -4355,6 +4920,49 @@ func update_station_navigation_lights() -> void:
 		if light == null or not is_instance_valid(light):
 			continue
 		light.visible = strobe_on
+
+
+func update_planet_weather_effects(delta: float) -> void:
+	var pulse_time := Time.get_ticks_msec() * 0.001
+	for effect in planet_weather_effects:
+		var weather_root := effect.get("root", null) as Node3D
+		if weather_root == null or not is_instance_valid(weather_root):
+			continue
+		var spin_rate := float(effect.get("spin_rate", 0.08))
+		weather_root.rotate_y(delta * spin_rate)
+		weather_root.rotate_x(delta * spin_rate * 0.15)
+		var atmosphere := effect.get("atmosphere", null) as MeshInstance3D
+		if atmosphere != null and is_instance_valid(atmosphere):
+			var atmosphere_material := atmosphere.material_override as StandardMaterial3D
+			if atmosphere_material != null:
+				var shimmer := 0.42 + 0.12 * sin(pulse_time * (0.7 + spin_rate))
+				atmosphere_material.emission = Color(
+					atmosphere_material.albedo_color.r,
+					atmosphere_material.albedo_color.g,
+					atmosphere_material.albedo_color.b
+				) * shimmer
+		var storm_bands: Array = effect.get("storm_bands", [])
+		for band_index in range(storm_bands.size()):
+			var band := storm_bands[band_index] as MeshInstance3D
+			if band == null or not is_instance_valid(band):
+				continue
+			band.rotate_z(delta * (0.18 + band_index * 0.05))
+			band.rotate_y(delta * (0.06 + band_index * 0.03))
+		var storm_cells: Array = effect.get("storm_cells", [])
+		for storm_index in range(storm_cells.size()):
+			var cell := storm_cells[storm_index] as MeshInstance3D
+			if cell == null or not is_instance_valid(cell):
+				continue
+			var phase := float(cell.get_meta("pulse_phase", 0.0))
+			var pulse := 0.76 + 0.28 * sin(pulse_time * (1.1 + storm_index * 0.13) + phase)
+			cell.scale = Vector3.ONE * pulse
+			var cell_material := cell.material_override as StandardMaterial3D
+			if cell_material != null:
+				cell_material.emission = Color(
+					cell_material.albedo_color.r * 4.2,
+					cell_material.albedo_color.g * 4.2,
+					cell_material.albedo_color.b * 4.2
+				) * pulse
 
 
 func play_sfx(name: String, volume_db: float = -6.0) -> void:
@@ -4861,6 +5469,21 @@ func update_camera(delta: float) -> void:
 		base_position = focus_point + orbit_local
 		base_look_point = focus_point
 
+	if pause_camera_blend > 0.001:
+		var pause_focus_point: Vector3 = player.global_position + ship_basis * CAMERA_FOCUS_OFFSET
+		var pause_pitch_live: float = clamp(pause_camera_pitch + sin(pause_camera_time * 0.34) * 0.035, -0.42, 0.12)
+		var pause_distance_live: float = pause_camera_distance + sin(pause_camera_time * 0.22) * 1.6
+		var pause_yaw_live: float = pause_camera_yaw + pause_camera_time * 0.16
+		var pause_offset: Vector3 = Vector3(
+			sin(pause_yaw_live) * cos(pause_pitch_live),
+			sin(pause_pitch_live),
+			cos(pause_yaw_live) * cos(pause_pitch_live)
+		) * pause_distance_live
+		var pause_position: Vector3 = pause_focus_point + pause_offset
+		var pause_look_point: Vector3 = pause_focus_point + player.velocity * 0.08
+		base_position = base_position.lerp(pause_position, pause_camera_blend)
+		base_look_point = base_look_point.lerp(pause_look_point, pause_camera_blend)
+
 	if cinematic_blend > 0.001:
 		var cinematic_pose: Dictionary = compute_cinematic_camera_pose()
 		var cinematic_position: Vector3 = cinematic_pose["position"]
@@ -4922,6 +5545,222 @@ func update_objective_visuals(delta: float) -> void:
 	update_objective_label(target_station)
 
 
+func layout_settings_panel_content(settings_width: float, compact: bool, is_phone_portrait: bool) -> float:
+	var padding := 18.0
+	var inner_width := settings_width - padding * 2.0
+	var button_width := 102.0 if is_phone_portrait else (84.0 if compact else 94.0)
+	var tab_width := (inner_width - 18.0) / 4.0
+	var row_height := 34.0 if is_phone_portrait else (28.0 if compact else 30.0)
+	var slider_height := 16.0
+	var row_gap := 8.0 if compact else 10.0
+	var section_gap := 10.0 if compact else 12.0
+	var title_height := 18.0 if compact else 20.0
+	var section_padding := 12.0 if compact else 14.0
+	var group_width := inner_width
+	var label_width: float = max(120.0, inner_width - button_width - 18.0)
+	var slider_width := inner_width - button_width - 18.0
+	var settings_y := 14.0
+
+	settings_title.offset_left = padding
+	settings_title.offset_top = settings_y
+	settings_title.offset_right = padding + max(168.0, inner_width - button_width - 18.0)
+	settings_title.offset_bottom = settings_y + 26.0
+	controls_button.offset_left = padding + group_width - button_width
+	controls_button.offset_top = settings_y
+	controls_button.offset_right = padding + group_width
+	controls_button.offset_bottom = settings_y + row_height
+	settings_y += 40.0 if compact else 44.0
+
+	var tab_y := settings_y
+	var tab_buttons: Array[Button] = [display_tab_button, audio_tab_button, flight_tab_button, render_tab_button]
+	for i in range(tab_buttons.size()):
+		var button: Button = tab_buttons[i]
+		if button == null:
+			continue
+		var left := padding + i * (tab_width + 6.0)
+		button.offset_left = left
+		button.offset_top = tab_y
+		button.offset_right = left + tab_width
+		button.offset_bottom = tab_y + row_height
+	settings_y += row_height + (8.0 if compact else 10.0)
+
+	var display_height := section_padding + title_height + 8.0 + 26.0 + row_gap + row_height + row_gap + row_height + section_padding
+	display_group.offset_left = padding
+	display_group.offset_top = settings_y
+	display_group.offset_right = padding + group_width
+	display_group.offset_bottom = settings_y + display_height
+	display_group_title.offset_left = section_padding
+	display_group_title.offset_top = 10.0
+	display_group_title.offset_right = group_width - section_padding
+	display_group_title.offset_bottom = 30.0
+	var display_row_y := settings_y + section_padding + title_height + 8.0
+	preset_value.offset_left = padding + section_padding
+	preset_value.offset_top = display_row_y
+	preset_value.offset_right = padding + group_width - section_padding
+	preset_value.offset_bottom = display_row_y + 24.0
+	display_row_y += 30.0
+	preset_prev_button.offset_left = padding + section_padding
+	preset_prev_button.offset_top = display_row_y
+	preset_prev_button.offset_right = padding + section_padding + button_width
+	preset_prev_button.offset_bottom = display_row_y + row_height
+	preset_next_button.offset_left = padding + section_padding + button_width + 8.0
+	preset_next_button.offset_top = display_row_y
+	preset_next_button.offset_right = padding + section_padding + button_width * 2.0 + 8.0
+	preset_next_button.offset_bottom = display_row_y + row_height
+	render_mode_button.offset_left = padding + group_width - section_padding - button_width
+	render_mode_button.offset_top = display_row_y
+	render_mode_button.offset_right = padding + group_width - section_padding
+	render_mode_button.offset_bottom = display_row_y + row_height
+	display_row_y += row_height + row_gap
+	bloom_value.offset_left = padding + section_padding
+	bloom_value.offset_top = display_row_y + 3.0
+	bloom_value.offset_right = padding + section_padding + label_width
+	bloom_value.offset_bottom = display_row_y + 27.0
+	bloom_button.offset_left = padding + group_width - section_padding - button_width
+	bloom_button.offset_top = display_row_y
+	bloom_button.offset_right = padding + group_width - section_padding
+	bloom_button.offset_bottom = display_row_y + row_height
+	var display_end := settings_y + display_height
+	settings_y += display_height + section_gap
+
+	var audio_height := section_padding + title_height + 8.0 + 2.0 * (24.0 + 20.0 + row_gap) + section_padding - 4.0
+	audio_group.offset_left = padding
+	audio_group.offset_top = settings_y
+	audio_group.offset_right = padding + group_width
+	audio_group.offset_bottom = settings_y + audio_height
+	audio_group_title.offset_left = section_padding
+	audio_group_title.offset_top = 10.0
+	audio_group_title.offset_right = group_width - section_padding
+	audio_group_title.offset_bottom = 30.0
+	var audio_row_y := settings_y + section_padding + title_height + 8.0
+	music_value.offset_left = padding + section_padding
+	music_value.offset_top = audio_row_y
+	music_value.offset_right = padding + section_padding + label_width
+	music_value.offset_bottom = audio_row_y + 24.0
+	music_button.offset_left = padding + group_width - section_padding - button_width
+	music_button.offset_top = audio_row_y - 4.0
+	music_button.offset_right = padding + group_width - section_padding
+	music_button.offset_bottom = audio_row_y - 4.0 + row_height
+	audio_row_y += 26.0
+	music_slider.offset_left = padding + section_padding
+	music_slider.offset_top = audio_row_y
+	music_slider.offset_right = padding + section_padding + slider_width
+	music_slider.offset_bottom = audio_row_y + slider_height
+	audio_row_y += 34.0
+	sfx_value.offset_left = padding + section_padding
+	sfx_value.offset_top = audio_row_y
+	sfx_value.offset_right = padding + section_padding + label_width
+	sfx_value.offset_bottom = audio_row_y + 24.0
+	sfx_button.offset_left = padding + group_width - section_padding - button_width
+	sfx_button.offset_top = audio_row_y - 4.0
+	sfx_button.offset_right = padding + group_width - section_padding
+	sfx_button.offset_bottom = audio_row_y - 4.0 + row_height
+	audio_row_y += 26.0
+	sfx_slider.offset_left = padding + section_padding
+	sfx_slider.offset_top = audio_row_y
+	sfx_slider.offset_right = padding + section_padding + slider_width
+	sfx_slider.offset_bottom = audio_row_y + slider_height
+	var audio_end := settings_y + audio_height
+	settings_y += audio_height + section_gap
+
+	var flight_height := section_padding + title_height + 8.0 + 4.0 * (row_height + row_gap) + section_padding - row_gap
+	flight_group.offset_left = padding
+	flight_group.offset_top = settings_y
+	flight_group.offset_right = padding + group_width
+	flight_group.offset_bottom = settings_y + flight_height
+	flight_group_title.offset_left = section_padding
+	flight_group_title.offset_top = 10.0
+	flight_group_title.offset_right = group_width - section_padding
+	flight_group_title.offset_bottom = 30.0
+	var flight_row_y := settings_y + section_padding + title_height + 8.0
+	for pair in [
+		[trail_value, trail_button],
+		[guidance_value, guidance_button],
+		[invert_y_value, invert_y_button],
+		[physics_mode_value, physics_mode_button]
+	]:
+		var value_label := pair[0] as Control
+		var action_button := pair[1] as Control
+		value_label.offset_left = padding + section_padding
+		value_label.offset_top = flight_row_y + 3.0
+		value_label.offset_right = padding + section_padding + label_width
+		value_label.offset_bottom = flight_row_y + 27.0
+		action_button.offset_left = padding + group_width - section_padding - button_width
+		action_button.offset_top = flight_row_y
+		action_button.offset_right = padding + group_width - section_padding
+		action_button.offset_bottom = flight_row_y + row_height
+		flight_row_y += row_height + row_gap
+	var flight_end := settings_y + flight_height
+	settings_y += flight_height + section_gap
+
+	var render_height := section_padding + title_height + 8.0 + 30.0 + row_gap + 4.0 * (24.0 + 20.0 + row_gap) + section_padding
+	render_group.offset_left = padding
+	render_group.offset_top = settings_y
+	render_group.offset_right = padding + group_width
+	render_group.offset_bottom = settings_y + render_height
+	render_group_title.offset_left = section_padding
+	render_group_title.offset_top = 10.0
+	render_group_title.offset_right = group_width - section_padding
+	render_group_title.offset_bottom = 30.0
+	var render_row_y := settings_y + section_padding + title_height + 8.0
+	edge_threshold_value.offset_left = padding + section_padding
+	edge_threshold_value.offset_top = render_row_y
+	edge_threshold_value.offset_right = padding + group_width - section_padding
+	edge_threshold_value.offset_bottom = render_row_y + 24.0
+	render_row_y += 26.0
+	shader_mode_option.offset_left = padding + section_padding
+	shader_mode_option.offset_top = render_row_y
+	shader_mode_option.offset_right = padding + group_width - section_padding
+	shader_mode_option.offset_bottom = render_row_y + 32.0
+	render_row_y += 44.0
+	for pair in [
+		[edge_strength_value, edge_threshold_slider],
+		[edge_glow_value, edge_strength_slider],
+		[blur_amount_value, blur_amount_slider],
+		[shader_aux_value, shader_aux_slider]
+	]:
+		var text_label := pair[0] as Control
+		var slider := pair[1] as Control
+		text_label.offset_left = padding + section_padding
+		text_label.offset_top = render_row_y
+		text_label.offset_right = padding + group_width - section_padding
+		text_label.offset_bottom = render_row_y + 24.0
+		render_row_y += 26.0
+		slider.offset_left = padding + section_padding
+		slider.offset_top = render_row_y
+		slider.offset_right = padding + group_width - section_padding
+		slider.offset_bottom = render_row_y + slider_height
+		render_row_y += 30.0
+	var render_end := settings_y + render_height
+	settings_y += render_height + 10.0
+
+	var active_end := display_end
+	match settings_tab_index:
+		1:
+			active_end = audio_end
+		2:
+			active_end = flight_end
+		3:
+			active_end = render_end
+		_:
+			active_end = display_end
+	var footer_y := active_end + (4.0 if compact else 8.0)
+	settings_hint.offset_left = padding
+	settings_hint.offset_top = footer_y
+	settings_hint.offset_right = padding + group_width
+	settings_hint.offset_bottom = footer_y + (34.0 if compact else 20.0)
+	if compact:
+		settings_hotkeys.visible = false
+		return settings_hint.offset_bottom + 12.0
+	footer_y += 24.0
+	settings_hotkeys.visible = true
+	settings_hotkeys.offset_left = padding
+	settings_hotkeys.offset_top = footer_y
+	settings_hotkeys.offset_right = padding + group_width
+	settings_hotkeys.offset_bottom = footer_y + 40.0
+	return settings_hotkeys.offset_bottom + 16.0
+
+
 func update_responsive_hud_layout(force: bool = false) -> void:
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	if not force and viewport_size == last_viewport_size:
@@ -4930,10 +5769,9 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	var portrait: bool = viewport_size.y / max(viewport_size.x, 1.0) >= PORTRAIT_LAYOUT_BREAKPOINT
 	var compact: bool = viewport_size.x <= PHONE_LAYOUT_BREAKPOINT or portrait
 	var is_phone_portrait: bool = portrait and viewport_size.x <= 900.0
-	var phone_touch_ui := OS.has_feature("web") and (viewport_size.x <= 980.0 or compact)
+	var phone_touch_ui := OS.has_feature("web") and (viewport_size.x <= 980.0 or compact or touch_device_active)
 	touch_phone_layout_active = phone_touch_ui
-	debug_save_defaults_button.visible = SHOW_DEBUG_SAVE_BUTTON and not phone_touch_ui
-	fullscreen_button.visible = not (phone_touch_ui and OS.has_feature("web"))
+	update_overlay_button_visibility()
 	var margin := 12.0 if compact else 22.0
 	var side_width: float = min(320.0 if is_phone_portrait else 256.0, max(196.0 if is_phone_portrait else 172.0, viewport_size.x * (0.7 if is_phone_portrait else (0.46 if compact else 0.22))))
 	var attitude_size: float = min(188.0 if is_phone_portrait else (156.0 if compact else 176.0), max(132.0 if is_phone_portrait else (108.0 if compact else 136.0), viewport_size.x * (0.24 if is_phone_portrait else (0.18 if compact else 0.1))))
@@ -5001,7 +5839,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	var utility_height := 48.0 if is_phone_portrait else (36.0 if compact else 28.0)
 	var utility_gap := 10.0 if is_phone_portrait else 6.0
 	var utility_right := -margin
-	for button in [fullscreen_button, help_button, shader_button, debug_save_defaults_button]:
+	for button in utility_buttons:
 		if button == null or not button.visible:
 			continue
 		button.offset_right = utility_right
@@ -5015,7 +5853,9 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	settings_panel.offset_left = margin if compact else -settings_width - 24.0
 	settings_panel.offset_right = -margin if compact else -24.0
 	settings_panel.offset_top = margin
-	settings_panel.offset_bottom = min(viewport_size.y - margin, 852.0 if not compact else viewport_size.y - margin)
+	var settings_content_height := layout_settings_panel_content(settings_width, compact, is_phone_portrait)
+	var settings_height: float = min(viewport_size.y - margin * 2.0, settings_content_height)
+	settings_panel.offset_bottom = margin + settings_height
 	var shader_panel_width: float = min(viewport_size.x - margin * 2.0, 420.0 if not compact else viewport_size.x - margin * 2.0)
 	var shader_panel_height: float = min(viewport_size.y - margin * 2.0, 340.0 if is_phone_portrait else 252.0)
 	shader_panel.offset_left = -shader_panel_width * 0.5
@@ -5068,7 +5908,26 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	route_value.add_theme_font_size_override("font_size", panel_text_size)
 	scanner_value.add_theme_font_size_override("font_size", panel_small_size)
 	combat_value.add_theme_font_size_override("font_size", panel_text_size)
+	combat_value.visible = false
 	build_value.add_theme_font_size_override("font_size", panel_small_size)
+	var right_width: float = abs(right_frame.offset_right - right_frame.offset_left)
+	var right_height: float = abs(right_frame.offset_bottom - right_frame.offset_top)
+	combat_title.offset_left = 16.0
+	combat_title.offset_top = 12.0
+	combat_title.offset_right = right_width - 16.0
+	combat_title.offset_bottom = 30.0
+	if tactical_map != null and is_instance_valid(tactical_map):
+		var map_margin := 16.0
+		var map_top := 40.0
+		var build_height := 24.0
+		var map_width: float = max(right_width - map_margin * 2.0, 96.0)
+		var map_height: float = max(right_height - map_top - build_height - 18.0, 96.0)
+		tactical_map.position = Vector2(map_margin, map_top)
+		tactical_map.size = Vector2(map_width, map_height)
+	build_value.offset_left = 16.0
+	build_value.offset_right = right_width - 16.0
+	build_value.offset_top = right_height - 30.0
+	build_value.offset_bottom = right_height - 8.0
 	message_value.add_theme_font_size_override("font_size", panel_text_size)
 	debug_save_defaults_button.add_theme_font_size_override("font_size", utility_button_font)
 	shader_button.add_theme_font_size_override("font_size", utility_button_font)
@@ -5178,7 +6037,7 @@ func update_contextual_line_visibility() -> void:
 func update_scanner() -> void:
 	var lines := PackedStringArray()
 	lines.append("Speed: %.1f" % player.velocity.length())
-	lines.append("Gravity: %.2f" % compute_ship_gravity().length())
+	lines.append("Gravity: %.2f" % cached_ship_gravity_magnitude)
 	lines.append("Range: %.0f" % player.global_position.length())
 	lines.append("Boost: %s" % ("on" if Input.is_key_pressed(KEY_SHIFT) else "idle"))
 	if autopilot_active:
