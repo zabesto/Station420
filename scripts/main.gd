@@ -26,7 +26,7 @@ const CHASE_PITCH_TARGET := -0.14
 const PHONE_LAYOUT_BREAKPOINT := 760.0
 const PORTRAIT_LAYOUT_BREAKPOINT := 1.05
 const SHOW_DEBUG_SAVE_BUTTON := false
-const VISUAL_PRESET_COUNT := 6
+const VISUAL_PRESET_COUNT := 7
 const CINEMATIC_IDLE_DELAY := 60.0
 const CINEMATIC_BLEND_IN_SPEED := 0.42
 const CINEMATIC_BLEND_OUT_SPEED := 1.8
@@ -447,6 +447,19 @@ var touch_target_button: Button
 var touch_up_button: Button
 var touch_down_button: Button
 var tactical_map: Control
+var inspector_button: Button
+var inspector_panel: Panel
+var inspector_title: Label
+var inspector_close_button: Button
+var inspector_hint: Label
+var inspector_object_name: Label
+var inspector_object_info: Label
+var inspector_screen_fx_button: Button
+var inspector_blur_button: Button
+var inspector_bloom_button: Button
+var inspector_solo_button: Button
+var inspector_trippy_button: Button
+var inspector_reset_button: Button
 var touch_move_pointer := -1
 var touch_look_pointer := -1
 var touch_move_axis := Vector2.ZERO
@@ -463,6 +476,9 @@ var utility_buttons: Array[Button] = []
 var runtime_rng := RandomNumberGenerator.new()
 var cached_ship_gravity := Vector3.ZERO
 var cached_ship_gravity_magnitude := 0.0
+var inspector_visible := false
+var inspector_solo_mode := false
+var inspector_selected_subject: Node = null
 
 
 func _ready() -> void:
@@ -522,9 +538,12 @@ func _ready() -> void:
 	connect_settings_controls()
 	setup_tactical_map()
 	create_touch_controls()
+	create_inspector_ui()
+	apply_hud_style()
 	cinematic_overlay_nodes = [
 		debug_save_defaults_button,
 		shader_button,
+		inspector_button,
 		help_button,
 		fullscreen_button,
 		top_frame,
@@ -554,11 +573,12 @@ func _ready() -> void:
 		touch_controls_root,
 		settings_panel,
 		controls_panel,
-		shader_panel
+		shader_panel,
+		inspector_panel
 	]
 	settings_tab_groups = [display_group, audio_group, flight_group, render_group]
 	settings_tab_buttons = [display_tab_button, audio_tab_button, flight_tab_button, render_tab_button]
-	utility_buttons = [fullscreen_button, help_button, shader_button, debug_save_defaults_button]
+	utility_buttons = [fullscreen_button, help_button, inspector_button, shader_button, debug_save_defaults_button]
 	update_responsive_hud_layout(true)
 	update_window_controls()
 
@@ -712,6 +732,80 @@ func create_touch_controls() -> void:
 	update_touch_controls_visibility()
 
 
+func create_inspector_ui() -> void:
+	if DisplayServer.get_name() == "headless" or hud == null or inspector_button != null:
+		return
+	inspector_button = Button.new()
+	inspector_button.name = "InspectorButton"
+	inspector_button.text = "INS"
+	inspector_button.tooltip_text = "Open visual inspector"
+	hud.add_child(inspector_button)
+	inspector_button.pressed.connect(_on_inspector_pressed)
+
+	inspector_panel = Panel.new()
+	inspector_panel.name = "InspectorPanel"
+	inspector_panel.visible = false
+	inspector_panel.clip_contents = true
+	hud.add_child(inspector_panel)
+
+	inspector_title = Label.new()
+	inspector_title.text = "Visual Inspector"
+	inspector_panel.add_child(inspector_title)
+
+	inspector_close_button = Button.new()
+	inspector_close_button.text = "Close"
+	inspector_close_button.tooltip_text = "Close inspector"
+	inspector_close_button.pressed.connect(_on_inspector_close_pressed)
+	inspector_panel.add_child(inspector_close_button)
+
+	inspector_hint = Label.new()
+	inspector_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	inspector_hint.text = "Click a visible object in the scene to inspect its style stack."
+	inspector_panel.add_child(inspector_hint)
+
+	inspector_object_name = Label.new()
+	inspector_object_name.text = "No object selected"
+	inspector_panel.add_child(inspector_object_name)
+
+	inspector_object_info = Label.new()
+	inspector_object_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	inspector_object_info.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	inspector_object_info.text = "Pick a ship, station, world, or marker to see active render layers."
+	inspector_panel.add_child(inspector_object_info)
+
+	inspector_screen_fx_button = Button.new()
+	inspector_screen_fx_button.text = "Screen FX"
+	inspector_screen_fx_button.pressed.connect(_on_post_fx_pressed)
+	inspector_panel.add_child(inspector_screen_fx_button)
+
+	inspector_blur_button = Button.new()
+	inspector_blur_button.text = "Blur"
+	inspector_blur_button.pressed.connect(_on_blur_fx_pressed)
+	inspector_panel.add_child(inspector_blur_button)
+
+	inspector_bloom_button = Button.new()
+	inspector_bloom_button.text = "Bloom"
+	inspector_bloom_button.pressed.connect(_on_bloom_pressed)
+	inspector_panel.add_child(inspector_bloom_button)
+
+	inspector_solo_button = Button.new()
+	inspector_solo_button.text = "Solo"
+	inspector_solo_button.pressed.connect(_on_inspector_solo_pressed)
+	inspector_panel.add_child(inspector_solo_button)
+
+	inspector_trippy_button = Button.new()
+	inspector_trippy_button.text = "Trippy"
+	inspector_trippy_button.pressed.connect(_on_inspector_trippy_pressed)
+	inspector_panel.add_child(inspector_trippy_button)
+
+	inspector_reset_button = Button.new()
+	inspector_reset_button.text = "Reset"
+	inspector_reset_button.pressed.connect(_on_inspector_reset_pressed)
+	inspector_panel.add_child(inspector_reset_button)
+
+	update_inspector_panel_labels()
+
+
 func setup_tactical_map() -> void:
 	if DisplayServer.get_name() == "headless" or right_frame == null or tactical_map != null:
 		return
@@ -779,6 +873,7 @@ func apply_shader_runtime_settings() -> void:
 	update_overlay_blur()
 	update_attitude_indicator_theme()
 	update_shader_panel_labels()
+	update_inspector_panel_labels()
 
 
 func update_shader_panel_labels() -> void:
@@ -905,6 +1000,10 @@ func _on_shader_panel_pressed() -> void:
 	toggle_shader_panel()
 
 
+func _on_inspector_pressed() -> void:
+	toggle_inspector_panel()
+
+
 func _on_display_tab_pressed() -> void:
 	set_settings_tab(0)
 
@@ -948,10 +1047,44 @@ func _on_blur_fx_pressed() -> void:
 func _on_attitude_shader_pressed() -> void:
 	attitude_shader_enabled = not attitude_shader_enabled
 	apply_shader_runtime_settings()
+	update_inspector_panel_labels()
 
 
 func _on_fullscreen_pressed() -> void:
 	toggle_fullscreen_mode()
+
+
+func _on_inspector_close_pressed() -> void:
+	toggle_inspector_panel()
+
+
+func _on_inspector_solo_pressed() -> void:
+	inspector_solo_mode = not inspector_solo_mode
+	refresh_debug_visual_overrides()
+	update_inspector_panel_labels()
+
+
+func _on_inspector_trippy_pressed() -> void:
+	if inspector_selected_subject == null or not is_instance_valid(inspector_selected_subject):
+		return
+	var meshes := get_debug_subject_meshes(inspector_selected_subject)
+	if meshes.is_empty():
+		return
+	var enable_override := false
+	for mesh in meshes:
+		if not bool(mesh.get_meta("debug_force_trippy", false)):
+			enable_override = true
+			break
+	for mesh in meshes:
+		mesh.set_meta("debug_force_trippy", enable_override)
+	refresh_debug_visual_overrides()
+	update_inspector_panel_labels()
+
+
+func _on_inspector_reset_pressed() -> void:
+	clear_debug_subject_overrides()
+	refresh_debug_visual_overrides()
+	update_inspector_panel_labels()
 
 
 func _process(delta: float) -> void:
@@ -1033,6 +1166,11 @@ func update_cinematic_overlay() -> void:
 	for node in cinematic_overlay_nodes:
 		if node != null:
 			node.modulate.a = hud_alpha
+	if paused:
+		if pause_card != null:
+			pause_card.modulate.a = 1.0
+		if pause_label != null:
+			pause_label.modulate.a = 1.0
 	cinematic_top_bar.visible = cinematic_blend > 0.001
 	cinematic_bottom_bar.visible = cinematic_blend > 0.001
 	cinematic_top_bar.modulate.a = cinematic_blend
@@ -1051,6 +1189,12 @@ func update_cinematic_overlay() -> void:
 
 func _physics_process(delta: float) -> void:
 	if paused:
+		if start_screen_active:
+			simulate_planets(delta)
+			cached_ship_gravity = compute_ship_gravity()
+			cached_ship_gravity_magnitude = cached_ship_gravity.length()
+			player.call("set_gravity_acceleration", cached_ship_gravity * SHIP_GRAVITY_SCALE)
+			update_effects(delta)
 		return
 
 	simulate_planets(delta)
@@ -1078,9 +1222,15 @@ func _input(event: InputEvent) -> void:
 		if handle_touch_controls_input(event):
 			get_viewport().set_input_as_handled()
 			return
+	if inspector_visible and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		var mouse_event := event as InputEventMouseButton
+		if inspector_panel == null or not inspector_panel.get_global_rect().has_point(mouse_event.position):
+			pick_inspector_object(mouse_event.position)
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventScreenTouch and event.pressed:
 		note_player_activity()
-		if shader_panel_visible or controls_visible:
+		if shader_panel_visible or controls_visible or inspector_visible:
 			return
 		if start_screen_active:
 			start_run()
@@ -1140,6 +1290,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_shaded_mode()
 			return
 		if event.button_index == JOY_BUTTON_BACK:
+			if inspector_visible:
+				toggle_inspector_panel()
+				return
 			if shader_panel_visible:
 				toggle_shader_panel()
 				return
@@ -1188,6 +1341,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		if inspector_visible:
+			toggle_inspector_panel()
+			return
 		if shader_panel_visible:
 			toggle_shader_panel()
 			return
@@ -1206,6 +1362,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
+		if inspector_visible:
+			toggle_inspector_panel()
+			return
 		if shader_panel_visible:
 			toggle_shader_panel()
 			return
@@ -1235,12 +1394,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_5:
 			set_visual_preset(4)
 			return
-		if event.keycode == KEY_6:
-			set_visual_preset(5)
-			return
-		if event.keycode == KEY_B:
-			toggle_bloom()
-			return
+			if event.keycode == KEY_6:
+				set_visual_preset(5)
+				return
+			if event.keycode == KEY_7:
+				set_visual_preset(6)
+				return
+			if event.keycode == KEY_B:
+				toggle_bloom()
+				return
 		if event.keycode == KEY_M:
 			toggle_music()
 			return
@@ -2480,14 +2642,16 @@ func setup_blur_pass() -> void:
 
 
 func update_overlay_blur() -> void:
-	blur_pass.visible = blur_shader_enabled and (start_screen_active or paused or settings_visible or controls_visible or shader_panel_visible)
+	blur_pass.visible = blur_shader_enabled and (start_screen_active or paused or settings_visible or controls_visible or shader_panel_visible or inspector_visible)
 
 
 func update_overlay_button_visibility() -> void:
-	var show_utilities := not (settings_visible or controls_visible or shader_panel_visible)
+	var show_utilities := not (settings_visible or controls_visible or shader_panel_visible or inspector_visible)
 	fullscreen_button.visible = show_utilities and not (touch_device_active and OS.has_feature("web"))
 	help_button.visible = show_utilities
 	shader_button.visible = show_utilities
+	if inspector_button != null:
+		inspector_button.visible = show_utilities
 	debug_save_defaults_button.visible = SHOW_DEBUG_SAVE_BUTTON and show_utilities and not touch_phone_layout_active
 
 
@@ -2580,7 +2744,7 @@ func reset_touch_pad_knob(pad: Control, knob: ColorRect) -> void:
 func update_touch_controls_visibility() -> void:
 	if touch_controls_root == null:
 		return
-	var show_controls: bool = touch_device_active and not paused and not start_screen_active and not settings_visible and not controls_visible and not shader_panel_visible and not game_over_state
+	var show_controls: bool = touch_device_active and not paused and not start_screen_active and not settings_visible and not controls_visible and not shader_panel_visible and not inspector_visible and not game_over_state
 	touch_controls_root.visible = show_controls
 	if not show_controls:
 		reset_touch_controls_state()
@@ -2737,6 +2901,8 @@ func get_preset_name(index: int) -> String:
 			return "Cobalt Neon"
 		5:
 			return "Trippy Prism"
+		6:
+			return "Violet Pulse"
 		_:
 			return "Deep Space"
 
@@ -2796,6 +2962,13 @@ func apply_visual_preset() -> void:
 			environment.fog_enabled = false
 			environment.fog_light_color = Color(0.18, 0.54, 1.0)
 			environment.fog_density = 0.0
+		6:
+			environment.background_color = Color(0.018, 0.008, 0.04)
+			environment.ambient_light_color = Color(0.78, 0.56, 1.0)
+			environment.ambient_light_energy = 0.52
+			environment.fog_enabled = false
+			environment.fog_light_color = Color(0.5, 0.22, 0.88)
+			environment.fog_density = 0.0
 		_:
 			environment.background_color = Color(0.005, 0.008, 0.014)
 			environment.ambient_light_color = Color(0.46, 0.52, 0.62)
@@ -2806,11 +2979,25 @@ func apply_visual_preset() -> void:
 	environment.glow_intensity = 0.92 if bloom_enabled else 0.0
 	environment.glow_strength = 1.12 if bloom_enabled else 0.0
 	environment.glow_bloom = 0.22 if bloom_enabled else 0.0
-	environment.tonemap_exposure = 1.06 if visual_preset_index == 5 else (1.18 if shaded_mode else (1.1 if visual_preset_index == 1 else 1.0))
+	var tonemap_exposure := 1.0
+	if visual_preset_index == 5:
+		tonemap_exposure = 1.06
+	elif visual_preset_index == 6:
+		tonemap_exposure = 1.08
+	elif shaded_mode:
+		tonemap_exposure = 1.18
+	elif visual_preset_index == 1:
+		tonemap_exposure = 1.1
+	environment.tonemap_exposure = tonemap_exposure
 
 	if sunlight != null:
 		sunlight.visible = shaded_mode
-		sunlight.light_energy = (1.2 if visual_preset_index == 5 else 1.85) if shaded_mode else 0.0
+		var sun_energy := 1.85
+		if visual_preset_index == 5:
+			sun_energy = 1.2
+		elif visual_preset_index == 6:
+			sun_energy = 1.35
+		sunlight.light_energy = sun_energy if shaded_mode else 0.0
 
 	for node in get_tree().get_nodes_in_group("style_mesh"):
 		apply_mesh_style(node)
@@ -2842,6 +3029,9 @@ func update_edge_pass_theme() -> void:
 		5:
 			tint = Color(0.16, 0.74, 1.0)
 			halo_radius = 2.38
+		6:
+			tint = Color(0.78, 0.5, 1.0)
+			halo_radius = 2.16
 		_:
 			tint = Color(0.84, 0.92, 1.0)
 			halo_radius = 1.95
@@ -2880,6 +3070,8 @@ func update_blur_pass_theme() -> void:
 			tint = Color(0.04, 0.14, 0.32, 0.1)
 		5:
 			tint = Color(0.02, 0.08, 0.2, 0.08)
+		6:
+			tint = Color(0.12, 0.06, 0.22, 0.1)
 		_:
 			tint = Color(0.08, 0.12, 0.2, 0.08)
 	blur_material.set_shader_parameter("fog_density", blur_strength_scale * 0.18)
@@ -2911,6 +3103,8 @@ func register_style_label(label: Label3D, role: String, base_color: Color = Colo
 
 
 func apply_mesh_style(mesh: MeshInstance3D) -> void:
+	if mesh == null or not is_instance_valid(mesh):
+		return
 	var role := str(mesh.get_meta("style_role", "world"))
 	var base_color: Color = mesh.get_meta("style_base_color", Color.WHITE)
 	var render_variant := str(mesh.get_meta("render_variant", "both"))
@@ -2919,6 +3113,14 @@ func apply_mesh_style(mesh: MeshInstance3D) -> void:
 		mesh.visible = shaded_mode
 	elif render_variant == "wire":
 		mesh.visible = not shaded_mode
+	if inspector_solo_mode and inspector_selected_subject != null and is_instance_valid(inspector_selected_subject):
+		mesh.visible = mesh.visible and inspector_selected_subject.is_ancestor_of(mesh)
+	if bool(mesh.get_meta("debug_hidden", false)):
+		mesh.visible = false
+		return
+	if bool(mesh.get_meta("debug_force_trippy", false)):
+		mesh.material_override = build_trippy_style_material(role, resolve_style_color(role, base_color), render_variant)
+		return
 	mesh.material_override = build_style_material(role, base_color, render_variant)
 
 
@@ -3055,6 +3257,14 @@ func resolve_style_color(role: String, base_color: Color) -> Color:
 			if role == "lane":
 				return base_color.lerp(Color(0.48, 0.88, 1.0, base_color.a), 0.24)
 			return base_color.lerp(Color(0.34, 0.76, 1.0), 0.34)
+		6:
+			if role in ["enemy", "danger", "alert"]:
+				return Color(1.0, 0.48, 0.82)
+			if role in ["target", "objective", "dock"]:
+				return Color(0.9, 0.72, 1.0)
+			if role == "lane":
+				return base_color.lerp(Color(0.74, 0.58, 1.0, base_color.a), 0.22)
+			return base_color.lerp(Color(0.72, 0.46, 1.0), 0.3)
 		_:
 			if role in ["enemy", "danger", "alert"]:
 				return Color(1.0, 0.4, 0.32)
@@ -3122,6 +3332,10 @@ func apply_hud_style() -> void:
 			hud_color = Color(0.78, 0.92, 1.0)
 			accent_color = Color(0.24, 0.74, 1.0)
 			alert_color = Color(0.76, 0.98, 1.0)
+		6:
+			hud_color = Color(0.94, 0.84, 1.0)
+			accent_color = Color(0.74, 0.46, 1.0)
+			alert_color = Color(1.0, 0.54, 0.82)
 		_:
 			hud_color = Color(0.84, 0.9, 1.0)
 			accent_color = Color(0.96, 0.98, 1.0)
@@ -3167,6 +3381,8 @@ func apply_hud_style() -> void:
 	settings_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.95)
 	controls_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.96)
 	shader_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.96)
+	if inspector_panel != null:
+		inspector_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.96)
 	settings_title.modulate = accent_color
 	display_group.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.94)
 	audio_group.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.94)
@@ -3184,6 +3400,14 @@ func apply_hud_style() -> void:
 	controls_controller_text.modulate = hud_color
 	controls_hint.modulate = accent_color
 	shader_title.modulate = accent_color
+	if inspector_title != null:
+		inspector_title.modulate = accent_color
+	if inspector_hint != null:
+		inspector_hint.modulate = accent_color
+	if inspector_object_name != null:
+		inspector_object_name.modulate = accent_color
+	if inspector_object_info != null:
+		inspector_object_info.modulate = hud_color
 	post_fx_value.modulate = hud_color
 	blur_fx_value.modulate = hud_color
 	attitude_shader_value.modulate = hud_color
@@ -3225,6 +3449,8 @@ func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Colo
 	render_group.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.7), hud_color, 14))
 	controls_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 22))
 	shader_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 18))
+	if inspector_panel != null:
+		inspector_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 18))
 	pause_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 24))
 	start_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 28))
 
@@ -3241,6 +3467,14 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 	for button in [
 		controls_button,
 		controls_close_button,
+		inspector_button,
+		inspector_close_button,
+		inspector_screen_fx_button,
+		inspector_blur_button,
+		inspector_bloom_button,
+		inspector_solo_button,
+		inspector_trippy_button,
+		inspector_reset_button,
 		shader_button,
 		shader_close_button,
 		post_fx_button,
@@ -3478,6 +3712,7 @@ func _on_shader_aux_slider_changed(value: float) -> void:
 func toggle_bloom() -> void:
 	bloom_enabled = not bloom_enabled
 	apply_visual_preset()
+	update_inspector_panel_labels()
 
 
 func toggle_music() -> void:
@@ -3531,7 +3766,7 @@ func update_settings_label() -> void:
 	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
 	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
 	settings_hint.text = "Use Controls for keyboard and gamepad bindings. Press H or Back to close."
-	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-6 themes, mouse wheel zoom"
+	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-7 themes, mouse wheel zoom"
 	controls_keyboard_text.text = "Flight\nW A S D  move\nR / F  rise / descend\nQ / E  roll / dock\nShift  boost\nSpace  fire\n\nView\nTab  cycle camera\nV  reset view\n\nSystems\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nH  help/settings\nEsc  pause"
 	controls_controller_text.text = "Flight\nLeft stick  steer / pitch\nRT / LT  thrust / reverse\nA  fire / launch\n\nView\nRight stick  camera look\nY  cycle camera\nR3  reset view\n\nSystems\nX  cycle AP target\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nB  render mode\nBack  help/settings\nStart  pause"
 	controls_hint.text = "Close with Esc, H, Back, or the Close button."
@@ -3630,6 +3865,10 @@ func toggle_settings_panel() -> void:
 	if shader_panel_visible:
 		shader_panel_visible = false
 		shader_panel.visible = false
+	if inspector_visible:
+		inspector_visible = false
+		if inspector_panel != null:
+			inspector_panel.visible = false
 	settings_visible = not settings_visible
 	settings_panel.visible = settings_visible
 	if settings_visible:
@@ -3644,6 +3883,10 @@ func toggle_controls_panel() -> void:
 	if shader_panel_visible:
 		shader_panel_visible = false
 		shader_panel.visible = false
+	if inspector_visible:
+		inspector_visible = false
+		if inspector_panel != null:
+			inspector_panel.visible = false
 	if not settings_visible:
 		settings_visible = true
 		settings_panel.visible = true
@@ -3658,8 +3901,29 @@ func toggle_shader_panel() -> void:
 	if controls_visible:
 		controls_visible = false
 		controls_panel.visible = false
+	if inspector_visible:
+		inspector_visible = false
+		if inspector_panel != null:
+			inspector_panel.visible = false
 	shader_panel_visible = not shader_panel_visible
 	shader_panel.visible = shader_panel_visible
+	update_overlay_button_visibility()
+	update_mouse_mode()
+	update_touch_controls_visibility()
+
+
+func toggle_inspector_panel() -> void:
+	if controls_visible:
+		controls_visible = false
+		controls_panel.visible = false
+	if shader_panel_visible:
+		shader_panel_visible = false
+		shader_panel.visible = false
+	inspector_visible = not inspector_visible
+	if inspector_panel != null:
+		inspector_panel.visible = inspector_visible
+	if inspector_visible:
+		update_inspector_panel_labels()
 	update_overlay_button_visibility()
 	update_mouse_mode()
 	update_touch_controls_visibility()
@@ -3999,7 +4263,7 @@ func compute_autopilot_basis(forward: Vector3) -> Basis:
 func update_mouse_mode() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	if paused or start_screen_active or settings_visible or controls_visible or touch_phone_layout_active:
+	if paused or start_screen_active or settings_visible or controls_visible or shader_panel_visible or inspector_visible or touch_phone_layout_active:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		return
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -5584,16 +5848,17 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 		button.offset_bottom = tab_y + row_height
 	settings_y += row_height + (8.0 if compact else 10.0)
 
+	var group_top := settings_y
 	var display_height := section_padding + title_height + 8.0 + 26.0 + row_gap + row_height + row_gap + row_height + section_padding
 	display_group.offset_left = padding
-	display_group.offset_top = settings_y
+	display_group.offset_top = group_top
 	display_group.offset_right = padding + group_width
-	display_group.offset_bottom = settings_y + display_height
+	display_group.offset_bottom = group_top + display_height
 	display_group_title.offset_left = section_padding
 	display_group_title.offset_top = 10.0
 	display_group_title.offset_right = group_width - section_padding
 	display_group_title.offset_bottom = 30.0
-	var display_row_y := settings_y + section_padding + title_height + 8.0
+	var display_row_y := group_top + section_padding + title_height + 8.0
 	preset_value.offset_left = padding + section_padding
 	preset_value.offset_top = display_row_y
 	preset_value.offset_right = padding + group_width - section_padding
@@ -5620,19 +5885,18 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 	bloom_button.offset_top = display_row_y
 	bloom_button.offset_right = padding + group_width - section_padding
 	bloom_button.offset_bottom = display_row_y + row_height
-	var display_end := settings_y + display_height
-	settings_y += display_height + section_gap
+	var display_end := group_top + display_height
 
 	var audio_height := section_padding + title_height + 8.0 + 2.0 * (24.0 + 20.0 + row_gap) + section_padding - 4.0
 	audio_group.offset_left = padding
-	audio_group.offset_top = settings_y
+	audio_group.offset_top = group_top
 	audio_group.offset_right = padding + group_width
-	audio_group.offset_bottom = settings_y + audio_height
+	audio_group.offset_bottom = group_top + audio_height
 	audio_group_title.offset_left = section_padding
 	audio_group_title.offset_top = 10.0
 	audio_group_title.offset_right = group_width - section_padding
 	audio_group_title.offset_bottom = 30.0
-	var audio_row_y := settings_y + section_padding + title_height + 8.0
+	var audio_row_y := group_top + section_padding + title_height + 8.0
 	music_value.offset_left = padding + section_padding
 	music_value.offset_top = audio_row_y
 	music_value.offset_right = padding + section_padding + label_width
@@ -5660,19 +5924,18 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 	sfx_slider.offset_top = audio_row_y
 	sfx_slider.offset_right = padding + section_padding + slider_width
 	sfx_slider.offset_bottom = audio_row_y + slider_height
-	var audio_end := settings_y + audio_height
-	settings_y += audio_height + section_gap
+	var audio_end := group_top + audio_height
 
 	var flight_height := section_padding + title_height + 8.0 + 4.0 * (row_height + row_gap) + section_padding - row_gap
 	flight_group.offset_left = padding
-	flight_group.offset_top = settings_y
+	flight_group.offset_top = group_top
 	flight_group.offset_right = padding + group_width
-	flight_group.offset_bottom = settings_y + flight_height
+	flight_group.offset_bottom = group_top + flight_height
 	flight_group_title.offset_left = section_padding
 	flight_group_title.offset_top = 10.0
 	flight_group_title.offset_right = group_width - section_padding
 	flight_group_title.offset_bottom = 30.0
-	var flight_row_y := settings_y + section_padding + title_height + 8.0
+	var flight_row_y := group_top + section_padding + title_height + 8.0
 	for pair in [
 		[trail_value, trail_button],
 		[guidance_value, guidance_button],
@@ -5690,19 +5953,18 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 		action_button.offset_right = padding + group_width - section_padding
 		action_button.offset_bottom = flight_row_y + row_height
 		flight_row_y += row_height + row_gap
-	var flight_end := settings_y + flight_height
-	settings_y += flight_height + section_gap
+	var flight_end := group_top + flight_height
 
 	var render_height := section_padding + title_height + 8.0 + 30.0 + row_gap + 4.0 * (24.0 + 20.0 + row_gap) + section_padding
 	render_group.offset_left = padding
-	render_group.offset_top = settings_y
+	render_group.offset_top = group_top
 	render_group.offset_right = padding + group_width
-	render_group.offset_bottom = settings_y + render_height
+	render_group.offset_bottom = group_top + render_height
 	render_group_title.offset_left = section_padding
 	render_group_title.offset_top = 10.0
 	render_group_title.offset_right = group_width - section_padding
 	render_group_title.offset_bottom = 30.0
-	var render_row_y := settings_y + section_padding + title_height + 8.0
+	var render_row_y := group_top + section_padding + title_height + 8.0
 	edge_threshold_value.offset_left = padding + section_padding
 	edge_threshold_value.offset_top = render_row_y
 	edge_threshold_value.offset_right = padding + group_width - section_padding
@@ -5731,8 +5993,7 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 		slider.offset_right = padding + group_width - section_padding
 		slider.offset_bottom = render_row_y + slider_height
 		render_row_y += 30.0
-	var render_end := settings_y + render_height
-	settings_y += render_height + 10.0
+	var render_end := group_top + render_height
 
 	var active_end := display_end
 	match settings_tab_index:
@@ -5778,7 +6039,19 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	var side_height := 156.0 if is_phone_portrait else (124.0 if portrait else (166.0 if compact else 214.0))
 	var bottom_margin := 18.0 if portrait else (14.0 if compact else 22.0)
 	var top_height := 84.0 if is_phone_portrait else (72.0 if compact else 92.0)
-	var top_width: float = min(viewport_size.x - margin * 2.0 - 112.0, 700.0 if compact else 720.0)
+	var visible_utility_buttons: Array[Button] = []
+	for button in utility_buttons:
+		if button != null and button.visible:
+			visible_utility_buttons.append(button)
+	var utility_count := visible_utility_buttons.size()
+	var utility_width := 72.0 if is_phone_portrait else (56.0 if compact else 48.0)
+	var utility_height := 48.0 if is_phone_portrait else (36.0 if compact else 28.0)
+	var utility_gap := 10.0 if is_phone_portrait else (8.0 if compact else 10.0)
+	var stacked_utilities := compact or viewport_size.x < 1500.0 or utility_count > 4
+	var utility_lane_width := utility_width
+	if stacked_utilities and utility_count > 0:
+		utility_lane_width = utility_width
+	var top_width: float = min(viewport_size.x - margin * 2.0 - utility_lane_width - (24.0 if utility_count > 0 else 0.0), 700.0 if compact else 720.0)
 	top_frame.offset_left = -top_width * 0.5
 	top_frame.offset_right = top_width * 0.5
 	top_frame.offset_top = margin
@@ -5835,18 +6108,22 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	message_value.offset_right = message_width - 18.0
 	message_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	var utility_width := 72.0 if is_phone_portrait else (56.0 if compact else 48.0)
-	var utility_height := 48.0 if is_phone_portrait else (36.0 if compact else 28.0)
-	var utility_gap := 10.0 if is_phone_portrait else 6.0
 	var utility_right := -margin
-	for button in utility_buttons:
-		if button == null or not button.visible:
-			continue
-		button.offset_right = utility_right
-		button.offset_left = utility_right - utility_width
-		button.offset_top = margin
-		button.offset_bottom = margin + utility_height
-		utility_right = button.offset_left - utility_gap
+	if stacked_utilities:
+		var utility_top := margin
+		for button in visible_utility_buttons:
+			button.offset_right = utility_right
+			button.offset_left = utility_right - utility_width
+			button.offset_top = utility_top
+			button.offset_bottom = utility_top + utility_height
+			utility_top += utility_height + utility_gap
+	else:
+		for button in visible_utility_buttons:
+			button.offset_right = utility_right
+			button.offset_left = utility_right - utility_width
+			button.offset_top = margin
+			button.offset_bottom = margin + utility_height
+			utility_right = button.offset_left - utility_gap
 	var settings_width := viewport_size.x - margin * 2.0 if compact else 340.0
 	settings_panel.anchor_left = 0.0 if compact else 1.0
 	settings_panel.anchor_right = 1.0
@@ -5874,6 +6151,52 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	attitude_shader_button.offset_left = shader_panel_width - 124.0
 	attitude_shader_button.offset_right = shader_panel_width - 20.0
 	shader_hint.offset_right = shader_panel_width - 20.0
+	var inspector_panel_width: float = min(viewport_size.x - margin * 2.0, 460.0 if not compact else viewport_size.x - margin * 2.0)
+	var inspector_panel_height: float = min(viewport_size.y - margin * 2.0, 360.0 if is_phone_portrait else 328.0)
+	if inspector_panel != null:
+		inspector_panel.offset_left = -inspector_panel_width * 0.5
+		inspector_panel.offset_right = inspector_panel_width * 0.5
+		inspector_panel.offset_top = -inspector_panel_height * 0.5
+		inspector_panel.offset_bottom = inspector_panel_height * 0.5
+		inspector_title.offset_left = 18.0
+		inspector_title.offset_top = 16.0
+		inspector_title.offset_right = inspector_panel_width - 120.0
+		inspector_title.offset_bottom = 40.0
+		inspector_close_button.offset_left = inspector_panel_width - 104.0
+		inspector_close_button.offset_right = inspector_panel_width - 20.0
+		inspector_close_button.offset_top = 14.0
+		inspector_close_button.offset_bottom = 44.0
+		inspector_hint.offset_left = 18.0
+		inspector_hint.offset_top = 56.0
+		inspector_hint.offset_right = inspector_panel_width - 18.0
+		inspector_hint.offset_bottom = 92.0
+		inspector_object_name.offset_left = 18.0
+		inspector_object_name.offset_top = 102.0
+		inspector_object_name.offset_right = inspector_panel_width - 18.0
+		inspector_object_name.offset_bottom = 128.0
+		inspector_object_info.offset_left = 18.0
+		inspector_object_info.offset_top = 136.0
+		inspector_object_info.offset_right = inspector_panel_width - 18.0
+		inspector_object_info.offset_bottom = inspector_panel_height - 120.0
+		var inspector_button_width := (inspector_panel_width - 18.0 * 2.0 - 10.0 * 2.0) / 3.0
+		var inspector_row_y := inspector_panel_height - 96.0
+		var inspector_top_buttons: Array[Button] = [inspector_screen_fx_button, inspector_blur_button, inspector_bloom_button]
+		for i in range(3):
+			var left := 18.0 + i * (inspector_button_width + 10.0)
+			var button: Button = inspector_top_buttons[i]
+			button.offset_left = left
+			button.offset_right = left + inspector_button_width
+			button.offset_top = inspector_row_y
+			button.offset_bottom = inspector_row_y + 32.0
+		inspector_row_y += 40.0
+		var inspector_bottom_buttons: Array[Button] = [inspector_solo_button, inspector_trippy_button, inspector_reset_button]
+		for i in range(3):
+			var left := 18.0 + i * (inspector_button_width + 10.0)
+			var button: Button = inspector_bottom_buttons[i]
+			button.offset_left = left
+			button.offset_right = left + inspector_button_width
+			button.offset_top = inspector_row_y
+			button.offset_bottom = inspector_row_y + 32.0
 	var controls_width: float = min(viewport_size.x - margin * 2.0, 560.0 if not compact else viewport_size.x - margin * 2.0)
 	var controls_height: float = min(viewport_size.y - margin * 2.0, 520.0 if is_phone_portrait else (440.0 if not compact else viewport_size.y - margin * 2.0))
 	controls_panel.offset_left = -controls_width * 0.5
@@ -5936,6 +6259,8 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	settings_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
 	controls_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
 	shader_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
+	if inspector_title != null:
+		inspector_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
 	for label in [
 		preset_value,
 		bloom_value,
@@ -5960,7 +6285,10 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 		controls_keyboard_text,
 		controls_controller_label,
 		controls_controller_text,
-		controls_hint
+		controls_hint,
+		inspector_hint,
+		inspector_object_name,
+		inspector_object_info
 	]:
 		if label == null:
 			continue
@@ -6013,6 +6341,117 @@ func update_window_controls() -> void:
 	var is_fullscreen := window.mode == Window.MODE_FULLSCREEN or window.mode == Window.MODE_EXCLUSIVE_FULLSCREEN
 	fullscreen_button.text = "❐" if is_fullscreen else "⛶"
 	fullscreen_button.tooltip_text = "Exit fullscreen" if is_fullscreen else "Enter fullscreen"
+
+
+func pick_inspector_object(screen_position: Vector2) -> void:
+	var best_mesh: MeshInstance3D = null
+	var best_score := INF
+	for candidate in get_tree().get_nodes_in_group("style_mesh"):
+		var mesh := candidate as MeshInstance3D
+		if mesh == null or not is_instance_valid(mesh) or not mesh.visible:
+			continue
+		if camera.is_position_behind(mesh.global_position):
+			continue
+		var projected: Vector2 = camera.unproject_position(mesh.global_position)
+		var pixel_distance: float = projected.distance_to(screen_position)
+		if pixel_distance > 72.0:
+			continue
+		var depth_bias: float = camera.global_position.distance_to(mesh.global_position) * 0.01
+		var score: float = pixel_distance + depth_bias
+		if score < best_score:
+			best_score = score
+			best_mesh = mesh
+	if best_mesh == null:
+		inspector_selected_subject = null
+	else:
+		inspector_selected_subject = get_debug_subject_for_mesh(best_mesh)
+	update_inspector_panel_labels()
+	refresh_debug_visual_overrides()
+
+
+func get_debug_subject_for_mesh(mesh: MeshInstance3D) -> Node:
+	var current: Node = mesh
+	while current != null:
+		if current == player:
+			return current
+		if current.has_meta("station_name") or current.has_meta("pirate_hideout") or current.has_meta("traffic_class") or current.has_meta("hull"):
+			return current
+		current = current.get_parent()
+	return mesh
+
+
+func get_debug_subject_meshes(subject: Node) -> Array[MeshInstance3D]:
+	var meshes: Array[MeshInstance3D] = []
+	if subject == null or not is_instance_valid(subject):
+		return meshes
+	if subject is MeshInstance3D:
+		meshes.append(subject)
+	for child in subject.get_children():
+		if child is MeshInstance3D and child.is_in_group("style_mesh"):
+			meshes.append(child)
+	return meshes
+
+
+func clear_debug_subject_overrides() -> void:
+	if inspector_selected_subject != null and is_instance_valid(inspector_selected_subject):
+		for mesh in get_debug_subject_meshes(inspector_selected_subject):
+			mesh.set_meta("debug_hidden", false)
+			mesh.set_meta("debug_force_trippy", false)
+	inspector_solo_mode = false
+
+
+func refresh_debug_visual_overrides() -> void:
+	for candidate in get_tree().get_nodes_in_group("style_mesh"):
+		var mesh := candidate as MeshInstance3D
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		apply_mesh_style(mesh)
+
+
+func update_inspector_panel_labels() -> void:
+	if inspector_panel == null:
+		return
+	var selected_name := "No object selected"
+	var selected_info := "Click a visible ship, station, world, or marker to inspect it.\n\nLayers\nObject material\nTheme preset\nScreen FX\nOverlay blur\nBloom"
+	if inspector_selected_subject != null and is_instance_valid(inspector_selected_subject):
+		selected_name = str(inspector_selected_subject.name)
+		var meshes := get_debug_subject_meshes(inspector_selected_subject)
+		var primary_mesh: MeshInstance3D = meshes[0] if not meshes.is_empty() else null
+		var role := "n/a"
+		var material_name := "n/a"
+		if primary_mesh != null:
+			role = str(primary_mesh.get_meta("style_role", "world"))
+			if bool(primary_mesh.get_meta("debug_force_trippy", false)):
+				material_name = "Trippy Override"
+			elif primary_mesh.material_override != null:
+				material_name = primary_mesh.material_override.get_class()
+		var layer_lines := PackedStringArray([
+			"Type: %s" % inspector_selected_subject.get_class(),
+			"Role: %s" % role,
+			"Meshes: %d" % meshes.size(),
+			"Material: %s" % material_name,
+			"Layers: %s / %s / Bloom %s" % [
+				"ScreenFX On" if edge_shader_enabled else "ScreenFX Off",
+				"Blur On" if blur_shader_enabled else "Blur Off",
+				"On" if bloom_enabled else "Off"
+			]
+		])
+		if inspector_selected_subject.has_meta("station_name"):
+			layer_lines.append("Station: %s" % str(inspector_selected_subject.get_meta("station_name")))
+		selected_info = "\n".join(layer_lines)
+	inspector_object_name.text = selected_name
+	inspector_object_info.text = selected_info
+	inspector_screen_fx_button.text = "Screen FX: %s" % ("On" if edge_shader_enabled else "Off")
+	inspector_blur_button.text = "Blur: %s" % ("On" if blur_shader_enabled else "Off")
+	inspector_bloom_button.text = "Bloom: %s" % ("On" if bloom_enabled else "Off")
+	inspector_solo_button.text = "Solo: %s" % ("On" if inspector_solo_mode else "Off")
+	var trippy_active := false
+	if inspector_selected_subject != null and is_instance_valid(inspector_selected_subject):
+		for mesh in get_debug_subject_meshes(inspector_selected_subject):
+			if bool(mesh.get_meta("debug_force_trippy", false)):
+				trippy_active = true
+				break
+	inspector_trippy_button.text = "Trippy: %s" % ("On" if trippy_active else "Off")
 
 
 func update_contextual_line_visibility() -> void:
