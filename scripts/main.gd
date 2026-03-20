@@ -19,6 +19,7 @@ const CHASE_BIAS_DELAY := 0.8
 const CHASE_BIAS_SPEED := 0.42
 const CHASE_PITCH_TARGET := -0.14
 const PHONE_LAYOUT_BREAKPOINT := 760.0
+const PORTRAIT_LAYOUT_BREAKPOINT := 1.05
 const CINEMATIC_IDLE_DELAY := 60.0
 const CINEMATIC_BLEND_IN_SPEED := 0.42
 const CINEMATIC_BLEND_OUT_SPEED := 1.8
@@ -749,10 +750,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		note_player_activity()
 	elif event is InputEventMouseButton and event.pressed:
 		note_player_activity()
+	elif event is InputEventScreenTouch and event.pressed:
+		note_player_activity()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		note_player_activity()
 	elif event is InputEventJoypadButton and event.pressed:
 		note_player_activity()
+
+	if event is InputEventScreenTouch and event.pressed:
+		if shader_panel_visible:
+			return
+		if controls_visible:
+			return
+		if start_screen_active:
+			start_run()
+			return
+		if game_over_state:
+			restart_game()
+			return
 
 	if event is InputEventJoypadButton and event.pressed:
 		if event.button_index == JOY_BUTTON_START:
@@ -4234,13 +4249,14 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	if not force and viewport_size == last_viewport_size:
 		return
 	last_viewport_size = viewport_size
-	var margin := 14.0 if viewport_size.x <= PHONE_LAYOUT_BREAKPOINT else 22.0
-	var compact := viewport_size.x <= PHONE_LAYOUT_BREAKPOINT
-	var side_width: float = min(256.0, max(172.0, viewport_size.x * (0.44 if compact else 0.22)))
-	var attitude_size: float = min(176.0, max(136.0, viewport_size.x * (0.16 if compact else 0.1)))
-	var side_height := 166.0 if compact else 214.0
-	var bottom_margin := 14.0 if compact else 22.0
-	var top_height := 82.0 if compact else 92.0
+	var portrait: bool = viewport_size.y / max(viewport_size.x, 1.0) >= PORTRAIT_LAYOUT_BREAKPOINT
+	var compact: bool = viewport_size.x <= PHONE_LAYOUT_BREAKPOINT or portrait
+	var margin := 12.0 if compact else 22.0
+	var side_width: float = min(256.0, max(172.0, viewport_size.x * (0.46 if compact else 0.22)))
+	var attitude_size: float = min(156.0 if compact else 176.0, max(108.0 if compact else 136.0, viewport_size.x * (0.18 if compact else 0.1)))
+	var side_height := 124.0 if portrait else (166.0 if compact else 214.0)
+	var bottom_margin := 18.0 if portrait else (14.0 if compact else 22.0)
+	var top_height := 72.0 if compact else 92.0
 	var top_width: float = min(viewport_size.x - margin * 2.0 - 112.0, 700.0 if compact else 720.0)
 	top_frame.offset_left = -top_width * 0.5
 	top_frame.offset_right = top_width * 0.5
@@ -4269,20 +4285,31 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	attitude_display.offset_top = -attitude_half
 	attitude_display.offset_right = attitude_half
 	attitude_display.offset_bottom = attitude_half
-	left_frame.offset_left = margin
-	left_frame.offset_right = margin + side_width
-	left_frame.offset_top = -side_height - bottom_margin
-	left_frame.offset_bottom = -bottom_margin
-	right_frame.offset_left = -margin - side_width
-	right_frame.offset_right = -margin
-	right_frame.offset_top = -side_height - bottom_margin
-	right_frame.offset_bottom = -bottom_margin
+	if portrait:
+		var portrait_width: float = viewport_size.x - margin * 2.0
+		left_frame.offset_left = margin
+		left_frame.offset_right = margin + portrait_width
+		left_frame.offset_top = -side_height * 2.0 - bottom_margin - 8.0
+		left_frame.offset_bottom = -side_height - bottom_margin - 8.0
+		right_frame.offset_left = margin
+		right_frame.offset_right = margin + portrait_width
+		right_frame.offset_top = -side_height - bottom_margin
+		right_frame.offset_bottom = -bottom_margin
+	else:
+		left_frame.offset_left = margin
+		left_frame.offset_right = margin + side_width
+		left_frame.offset_top = -side_height - bottom_margin
+		left_frame.offset_bottom = -bottom_margin
+		right_frame.offset_left = -margin - side_width
+		right_frame.offset_right = -margin
+		right_frame.offset_top = -side_height - bottom_margin
+		right_frame.offset_bottom = -bottom_margin
 	var message_width: float = min(viewport_size.x - margin * 2.0 - (0.0 if compact else side_width * 1.8), 720.0 if not compact else viewport_size.x - margin * 2.0)
 	message_width = max(message_width, 320.0 if compact else 420.0)
 	message_frame.offset_left = -message_width * 0.5
 	message_frame.offset_right = message_width * 0.5
-	message_frame.offset_top = -(86.0 if compact else 92.0)
-	message_frame.offset_bottom = -(18.0 if compact else 24.0)
+	message_frame.offset_top = -(76.0 if portrait else (86.0 if compact else 92.0))
+	message_frame.offset_bottom = -(10.0 if portrait else (18.0 if compact else 24.0))
 	message_value.offset_left = 18.0
 	message_value.offset_right = message_width - 18.0
 	message_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
