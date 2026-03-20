@@ -539,13 +539,29 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 				function done(result) {
 					onSuccess(result['instance'], result['module']);
 				}
-				if (typeof (WebAssembly.instantiateStreaming) !== 'undefined') {
-					WebAssembly.instantiateStreaming(Promise.resolve(r), imports).then(done);
-				} else {
-					r.arrayBuffer().then(function (buffer) {
-						WebAssembly.instantiate(buffer, imports).then(done);
-					});
-				}
+				const response = r;
+				const isGzipWasm = response.url.endsWith('.wasm.gz');
+				const getSource = function () {
+					if (!isGzipWasm) {
+						return Promise.resolve(response);
+					}
+					if (typeof DecompressionStream === 'undefined') {
+						throw new Error('This browser cannot decompress the WebAssembly payload.');
+					}
+					return Promise.resolve(new Response(
+						response.body.pipeThrough(new DecompressionStream('gzip')),
+						{ headers: [['content-type', 'application/wasm']] }
+					));
+				};
+				getSource().then(function (source) {
+					if (typeof (WebAssembly.instantiateStreaming) !== 'undefined') {
+						WebAssembly.instantiateStreaming(Promise.resolve(source), imports).then(done);
+					} else {
+						source.arrayBuffer().then(function (buffer) {
+							WebAssembly.instantiate(buffer, imports).then(done);
+						});
+					}
+				});
 				r = null;
 				return {};
 			},
@@ -666,7 +682,7 @@ const Engine = (function () {
 	Engine.load = function (basePath, size) {
 		if (loadPromise == null) {
 			loadPath = basePath;
-			loadPromise = preloader.loadPromise(`${loadPath}.wasm`, size, true);
+			loadPromise = preloader.loadPromise(`${loadPath}.wasm.gz`, size, true);
 			requestAnimationFrame(preloader.animateProgress);
 		}
 		return loadPromise;
@@ -706,7 +722,7 @@ const Engine = (function () {
 						initPromise = Promise.reject(new Error('A base path must be provided when calling `init` and the engine is not loaded.'));
 						return initPromise;
 					}
-					Engine.load(basePath, this.config.fileSizes[`${basePath}.wasm`]);
+					Engine.load(basePath, this.config.fileSizes[`${basePath}.wasm.gz`] || this.config.fileSizes[`${basePath}.wasm`]);
 				}
 				const me = this;
 				function doInit(promise) {

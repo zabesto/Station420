@@ -19,11 +19,8 @@ rm -f "$CF_DIR/.DS_Store"
 find "$CF_DIR" -name "*.import" -delete
 rm -f "$CF_DIR/index.wasm"
 gzip -c "$EXPORT_DIR/index.wasm" > "$CF_DIR/index.wasm.gz"
-cat > "$CF_DIR/_headers" <<'EOF'
-/index.wasm.gz
-  Content-Encoding: gzip
-  Content-Type: application/wasm
-EOF
+python3 "$PROJECT_DIR/scripts/patch_cloudflare_loader.py" "$CF_DIR"
+rm -f "$CF_DIR/_headers"
 
 echo "Web export updated at $EXPORT_DIR"
 echo "Cloudflare assets prepared at $CF_DIR"
