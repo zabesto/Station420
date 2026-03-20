@@ -35,6 +35,52 @@ Export only:
 ./export-web.command
 ```
 
+What `./export-web.command` does:
+
+- Exports the Godot web build into `build/web`.
+- Copies that build into `build/cloudflare`.
+- Removes the raw `build/cloudflare/index.wasm`.
+- Writes `build/cloudflare/index.wasm.gz`.
+- Patches the generated Godot loader so Cloudflare serves a static asset bundle without a Worker.
+- Updates `build/cloudflare/index.html` so `GODOT_CONFIG.fileSizes` includes `index.wasm.gz`.
+
+## Cloudflare Deploy
+
+Static Cloudflare deployment now works without `worker.js`.
+
+Files involved:
+
+- `wrangler.toml`: points Cloudflare at `build/cloudflare`
+- `export-web.command`: prepares both local and Cloudflare web bundles
+- `scripts/patch_cloudflare_loader.py`: rewrites the generated Godot loader to request `index.wasm.gz`
+
+Deploy flow:
+
+```bash
+cd /Users/djcarter/Documents/code/godot/Station420
+./export-web.command
+npx wrangler deploy
+```
+
+Current production URL:
+
+```text
+https://station420.dj-e81.workers.dev
+```
+
+Important details:
+
+- `build/web` is the normal local preview output and still uses `index.wasm`.
+- `build/cloudflare` is the deployment bundle and uses `index.wasm.gz`.
+- The Cloudflare bundle depends on `DecompressionStream` in the browser to inflate the gzipped wasm before `WebAssembly.instantiateStreaming`.
+- `_headers` is intentionally removed from `build/cloudflare`; the deploy no longer depends on custom content-encoding headers or a Worker shim.
+
+Known validation notes:
+
+- `npx wrangler deploy` successfully published the static bundle on March 19, 2026.
+- In this Codex shell, direct requests to `/index.wasm.gz` were intermittently blocked by DNS resolution issues even after a successful deploy, so browser validation should still be done from a normal machine if the site appears stuck on load.
+- Godot may print a sandbox warning about saving editor settings under `~/Library/Application Support/Godot/editor_settings-4.6.tres` during headless export. That warning did not block export.
+
 ## Main Controls
 
 - `W A S D`: translate ship
@@ -103,4 +149,5 @@ Visual presets still cycle with keyboard `1-4` or controller `LB / RB`.
 
 - Project version is currently `0.4.0-dev`.
 - The game includes a checked-in `build/web` export for local preview.
+- The game includes a checked-in `build/cloudflare` export for static Cloudflare deploys.
 - There is still a shutdown-time Godot warning about leaked `ObjectDB` instances that has not been fully resolved yet.
