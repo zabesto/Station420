@@ -144,6 +144,7 @@ const STATION_LAYOUT := [
 @onready var edge_pass: ColorRect = $CanvasLayer/EdgePass
 @onready var title_label: Label = $CanvasLayer/HUD/TitleLabel
 @onready var debug_save_defaults_button: Button = $CanvasLayer/HUD/DebugSaveDefaultsButton
+@onready var help_button: Button = $CanvasLayer/HUD/HelpButton
 @onready var fullscreen_button: Button = $CanvasLayer/HUD/FullscreenButton
 @onready var cinematic_top_bar: ColorRect = $CanvasLayer/HUD/CinematicTopBar
 @onready var cinematic_bottom_bar: ColorRect = $CanvasLayer/HUD/CinematicBottomBar
@@ -189,6 +190,7 @@ const STATION_LAYOUT := [
 @onready var cockpit_mode_label: Label = $CanvasLayer/HUD/CockpitOverlay/CockpitModeLabel
 @onready var settings_panel: Panel = $CanvasLayer/HUD/SettingsPanel
 @onready var settings_title: Label = $CanvasLayer/HUD/SettingsPanel/SettingsTitle
+@onready var controls_button: Button = $CanvasLayer/HUD/SettingsPanel/ControlsButton
 @onready var preset_value: Label = $CanvasLayer/HUD/SettingsPanel/PresetValue
 @onready var preset_prev_button: Button = $CanvasLayer/HUD/SettingsPanel/PresetPrevButton
 @onready var preset_next_button: Button = $CanvasLayer/HUD/SettingsPanel/PresetNextButton
@@ -222,6 +224,14 @@ const STATION_LAYOUT := [
 @onready var shader_aux_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/ShaderAuxSlider
 @onready var settings_hint: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHint
 @onready var settings_hotkeys: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHotkeys
+@onready var controls_panel: Panel = $CanvasLayer/HUD/ControlsPanel
+@onready var controls_title: Label = $CanvasLayer/HUD/ControlsPanel/ControlsTitle
+@onready var controls_close_button: Button = $CanvasLayer/HUD/ControlsPanel/ControlsCloseButton
+@onready var controls_keyboard_label: Label = $CanvasLayer/HUD/ControlsPanel/ControlsKeyboardLabel
+@onready var controls_keyboard_text: Label = $CanvasLayer/HUD/ControlsPanel/ControlsKeyboardText
+@onready var controls_controller_label: Label = $CanvasLayer/HUD/ControlsPanel/ControlsControllerLabel
+@onready var controls_controller_text: Label = $CanvasLayer/HUD/ControlsPanel/ControlsControllerText
+@onready var controls_hint: Label = $CanvasLayer/HUD/ControlsPanel/ControlsHint
 
 var nearby_station: Area3D = null
 var dock_count := 0
@@ -281,6 +291,7 @@ var game_over_state := false
 var start_screen_active := true
 var boot_screen_time := 0.0
 var settings_visible := false
+var controls_visible := false
 var visual_preset_index := 0
 var shaded_mode := false
 var bloom_enabled := true
@@ -344,6 +355,7 @@ func _ready() -> void:
 	start_card.visible = true
 	start_label.visible = true
 	settings_panel.visible = false
+	controls_panel.visible = false
 	dock_label.visible = false
 	cargo_label.visible = false
 	objective_label.visible = false
@@ -401,9 +413,12 @@ func _exit_tree() -> void:
 
 
 func connect_settings_controls() -> void:
+	controls_button.pressed.connect(_on_controls_pressed)
+	controls_close_button.pressed.connect(_on_controls_close_pressed)
 	preset_prev_button.pressed.connect(_on_preset_prev_pressed)
 	preset_next_button.pressed.connect(_on_preset_next_pressed)
 	debug_save_defaults_button.pressed.connect(_on_debug_save_defaults_pressed)
+	help_button.pressed.connect(_on_help_pressed)
 	fullscreen_button.pressed.connect(_on_fullscreen_pressed)
 	render_mode_button.pressed.connect(_on_render_mode_pressed)
 	bloom_button.pressed.connect(_on_bloom_pressed)
@@ -523,6 +538,19 @@ func _on_debug_save_defaults_pressed() -> void:
 	save_current_defaults()
 
 
+func _on_help_pressed() -> void:
+	toggle_settings_panel()
+
+
+func _on_controls_pressed() -> void:
+	toggle_controls_panel()
+
+
+func _on_controls_close_pressed() -> void:
+	if controls_visible:
+		toggle_controls_panel()
+
+
 func _on_fullscreen_pressed() -> void:
 	toggle_fullscreen_mode()
 
@@ -592,6 +620,7 @@ func update_cinematic_overlay() -> void:
 	var hud_alpha: float = 1.0 - cinematic_blend
 	for node in [
 		debug_save_defaults_button,
+		help_button,
 		fullscreen_button,
 		top_frame,
 		attitude_frame,
@@ -617,7 +646,8 @@ func update_cinematic_overlay() -> void:
 		pause_card,
 		pause_label,
 		hit_label,
-		settings_panel
+		settings_panel,
+		controls_panel
 	]:
 		if node != null:
 			node.modulate.a = hud_alpha
@@ -669,9 +699,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_shaded_mode()
 			return
 		if event.button_index == JOY_BUTTON_BACK:
-			settings_visible = not settings_visible
-			settings_panel.visible = settings_visible
-			update_mouse_mode()
+			if controls_visible:
+				toggle_controls_panel()
+			else:
+				toggle_settings_panel()
 			return
 		if event.button_index == JOY_BUTTON_LEFT_SHOULDER:
 			set_visual_preset((visual_preset_index + 3) % 4)
@@ -713,6 +744,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		if controls_visible:
+			toggle_controls_panel()
+			return
 		toggle_pause()
 		return
 
@@ -725,9 +759,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
-		settings_visible = not settings_visible
-		settings_panel.visible = settings_visible
-		update_mouse_mode()
+		if controls_visible:
+			toggle_controls_panel()
+		else:
+			toggle_settings_panel()
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_BACKSLASH:
@@ -1448,7 +1483,7 @@ func dock_at_station(station: Area3D) -> void:
 
 	var station_name := str(station.get_meta("station_name"))
 	title_label.text = "Docked"
-	dock_label.text = "⌂ %s %d" % [station_name, dock_count]
+	dock_label.text = "Docked: %s (%d)" % [station_name, dock_count]
 	play_sfx("dock")
 	handle_cargo_dock(station_name)
 
@@ -1765,7 +1800,7 @@ func setup_blur_pass() -> void:
 
 
 func update_overlay_blur() -> void:
-	blur_pass.visible = start_screen_active or paused or settings_visible
+	blur_pass.visible = start_screen_active or paused or settings_visible or controls_visible
 
 
 func get_preset_name(index: int) -> String:
@@ -2107,6 +2142,12 @@ func apply_hud_style() -> void:
 	start_hint_label.modulate = accent_color
 	settings_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.95)
 	settings_title.modulate = accent_color
+	controls_title.modulate = accent_color
+	controls_keyboard_label.modulate = accent_color
+	controls_controller_label.modulate = accent_color
+	controls_keyboard_text.modulate = hud_color
+	controls_controller_text.modulate = hud_color
+	controls_hint.modulate = accent_color
 	preset_value.modulate = hud_color
 	bloom_value.modulate = hud_color
 	music_value.modulate = hud_color
@@ -2135,6 +2176,7 @@ func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Colo
 	right_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.76), accent_color, 20))
 	message_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.82), hud_color, 18))
 	settings_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.88), accent_color, 16))
+	controls_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.94), accent_color, 22))
 	pause_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), alert_color, 24))
 	start_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 28))
 
@@ -2148,6 +2190,9 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 	var primary_style := make_button_stylebox(Color(0.03, 0.05, 0.08, 0.86), accent_color)
 	var hot_style := make_button_stylebox(Color(0.08, 0.06, 0.06, 0.9), alert_color)
 	for button in [
+		controls_button,
+		controls_close_button,
+		help_button,
 		fullscreen_button,
 		preset_prev_button,
 		preset_next_button,
@@ -2354,6 +2399,7 @@ func toggle_physics_mode() -> void:
 func update_settings_label() -> void:
 	var trail_active = player.get("trail_enabled")
 	settings_title.text = "Graphics + Flight"
+	controls_title.text = "Keyboard + Controller"
 	preset_value.text = "Theme: %s / %s" % [get_preset_name(visual_preset_index), "Shaded" if shaded_mode else "Wireframe"]
 	bloom_value.text = "Bloom: %s" % ("On" if bloom_enabled else "Off")
 	music_value.text = "Music: %s (%d%%)" % ["On" if music_enabled else "Off", int(round(music_volume * 100.0))]
@@ -2367,6 +2413,11 @@ func update_settings_label() -> void:
 	edge_glow_value.text = "Detail: %d%%" % int(round(edge_strength_scale * 100.0))
 	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
 	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
+	settings_hint.text = "Use Controls for keyboard and gamepad bindings. Press H or Back to close."
+	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-4 themes, mouse wheel zoom"
+	controls_keyboard_text.text = "W A S D  move\nR / F  rise / descend\nQ / E  roll / dock\nShift  boost\nSpace  fire\nTab  cycle camera\nV  reset view\nH  help/settings\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nEsc  pause"
+	controls_controller_text.text = "Left stick  steer / pitch\nRight stick  camera look\nRT / LT  thrust / reverse\nA  fire / launch\nY  cycle camera\nB  render mode\nX  cycle AP target\nR3  reset view\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nBack  help/settings\nStart  pause"
+	controls_hint.text = "Close with Esc, H, Back, or the Close button."
 	if shader_mode_option.selected != shader_mode_index:
 		shader_mode_option.selected = shader_mode_index
 	if abs(music_slider.value - music_volume * 100.0) > 0.5:
@@ -2427,6 +2478,24 @@ func toggle_pause() -> void:
 		title_label.text = "Paused"
 	else:
 		title_label.text = "Wireframe System"
+	update_mouse_mode()
+
+
+func toggle_settings_panel() -> void:
+	if controls_visible:
+		controls_visible = false
+		controls_panel.visible = false
+	settings_visible = not settings_visible
+	settings_panel.visible = settings_visible
+	update_mouse_mode()
+
+
+func toggle_controls_panel() -> void:
+	if not settings_visible:
+		settings_visible = true
+		settings_panel.visible = true
+	controls_visible = not controls_visible
+	controls_panel.visible = controls_visible
 	update_mouse_mode()
 
 
@@ -2764,7 +2833,7 @@ func compute_autopilot_basis(forward: Vector3) -> Basis:
 func update_mouse_mode() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	if paused or start_screen_active or settings_visible:
+	if paused or start_screen_active or settings_visible or controls_visible:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		return
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -2818,19 +2887,19 @@ func apply_controller_deadzone(value: float) -> float:
 
 
 func update_combat_label() -> void:
-	var target_info := "Target none"
+	var target_info := "Target: none"
 	var target := get_primary_enemy_target()
 	if target != null:
-		target_info = "◎ %.0fm" % player.global_position.distance_to(target.global_position)
-	var autopilot_info := "AP manual"
+		target_info = "Target: %.0fm" % player.global_position.distance_to(target.global_position)
+	var autopilot_info := "Autopilot: manual"
 	if autopilot_active:
 		var station_name := ""
 		if autopilot_station != null and is_instance_valid(autopilot_station):
 			station_name = str(autopilot_station.get_meta("station_name"))
-		autopilot_info = "AP %s%s" % [get_autopilot_state_display(), "" if station_name.is_empty() else " %s" % station_name]
+		autopilot_info = "Autopilot: %s%s" % [get_autopilot_state_display(), "" if station_name.is_empty() else " to %s" % station_name]
 	hull_bar.value = player_hull
 	shield_bar.value = player_shields
-	combat_label.text = "H %d  S %d  ◎ %d\n# %d  × %d\n%s\n%s" % [
+	combat_label.text = "Hull %d%%  Shields %d%%\nHostiles %d  Score %d\nKills %d\n%s\n%s" % [
 		int(round(player_hull)),
 		int(round(player_shields)),
 		enemy_nodes.size(),
@@ -2839,7 +2908,7 @@ func update_combat_label() -> void:
 		target_info,
 		autopilot_info
 	]
-	combat_value.text = "◎ %d\n× %d\n# %d\n%s\n%s" % [
+	combat_value.text = "Hostiles: %d\nKills: %d\nScore: %d\n%s\n%s" % [
 		enemy_nodes.size(),
 		kills,
 		score,
@@ -2852,7 +2921,7 @@ func update_build_label() -> void:
 	var version := str(ProjectSettings.get_setting("application/config/version", "0.0-dev"))
 	var runtime := "WEB" if OS.has_feature("web") else "DESKTOP"
 	var build_flavor := "DBG" if OS.has_feature("debug") else "REL"
-	build_value.text = "%s %s %s" % [build_flavor, version, runtime]
+	build_value.text = "%s %s  v%s" % [runtime, build_flavor, version]
 
 
 func update_player_combat(delta: float) -> void:
@@ -4113,6 +4182,10 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	debug_save_defaults_button.offset_right = -72.0
 	debug_save_defaults_button.offset_top = margin
 	debug_save_defaults_button.offset_bottom = margin + 28.0
+	help_button.offset_left = -174.0
+	help_button.offset_right = -126.0
+	help_button.offset_top = margin
+	help_button.offset_bottom = margin + 28.0
 	fullscreen_button.offset_left = -66.0
 	fullscreen_button.offset_right = -22.0
 	fullscreen_button.offset_top = margin
@@ -4124,6 +4197,28 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	settings_panel.offset_right = -margin if compact else -24.0
 	settings_panel.offset_top = margin
 	settings_panel.offset_bottom = min(viewport_size.y - margin, 852.0 if not compact else viewport_size.y - margin)
+	var controls_width: float = min(viewport_size.x - margin * 2.0, 560.0 if not compact else viewport_size.x - margin * 2.0)
+	var controls_height: float = min(viewport_size.y - margin * 2.0, 440.0 if not compact else viewport_size.y - margin * 2.0)
+	controls_panel.offset_left = -controls_width * 0.5
+	controls_panel.offset_right = controls_width * 0.5
+	controls_panel.offset_top = -controls_height * 0.5
+	controls_panel.offset_bottom = controls_height * 0.5
+	var controls_column_width: float = controls_width * (0.5 if compact else 0.44)
+	controls_close_button.offset_left = controls_width - 104.0
+	controls_close_button.offset_right = controls_width - 20.0
+	controls_controller_label.offset_left = 20.0 if compact else controls_width * 0.53
+	controls_controller_label.offset_right = controls_width - 20.0
+	controls_controller_text.offset_left = 20.0 if compact else controls_width * 0.53
+	controls_controller_text.offset_right = controls_width - 20.0
+	controls_controller_label.offset_top = 226.0 if compact else 58.0
+	controls_controller_label.offset_bottom = controls_controller_label.offset_top + 22.0
+	controls_controller_text.offset_top = 252.0 if compact else 84.0
+	controls_controller_text.offset_bottom = controls_height - 54.0
+	controls_keyboard_text.offset_right = 20.0 + controls_column_width if compact else controls_width * 0.47
+	controls_keyboard_text.offset_bottom = 220.0 if compact else controls_height - 54.0
+	controls_keyboard_label.offset_right = controls_keyboard_text.offset_right
+	controls_hint.offset_top = controls_height - 34.0
+	controls_hint.offset_bottom = controls_height - 12.0
 	if compact:
 		cockpit_overlay.scale = Vector2(0.82, 0.82)
 	else:
@@ -4171,14 +4266,12 @@ func update_contextual_line_visibility() -> void:
 
 func update_scanner() -> void:
 	var lines := PackedStringArray()
-	lines.append("⌁")
-	lines.append("☼ %.0f" % player.global_position.length())
-	lines.append("g %.2f" % compute_ship_gravity().length())
-	lines.append("v %.1f" % player.velocity.length())
-	lines.append("⇧ %s" % ("on" if Input.is_key_pressed(KEY_SHIFT) else "idle"))
+	lines.append("Speed: %.1f" % player.velocity.length())
+	lines.append("Gravity: %.2f" % compute_ship_gravity().length())
+	lines.append("Range: %.0f" % player.global_position.length())
+	lines.append("Boost: %s" % ("on" if Input.is_key_pressed(KEY_SHIFT) else "idle"))
 	if autopilot_active:
-		lines.append("AP %s" % get_autopilot_state_display())
-	lines.append("")
+		lines.append("AP: %s" % get_autopilot_state_display())
 
 	for station in station_order:
 		var station_name := str(station.get_meta("station_name"))
@@ -4189,7 +4282,7 @@ func update_scanner() -> void:
 			marker = "> "
 		elif station_name == delivery_station and cargo_loaded:
 			marker = "> "
-		lines.append("%s%s [%s] %.0fm" % [marker, station_name, planet_name, distance])
+		lines.append("%s%s (%s) %.0fm" % [marker, station_name, planet_name, distance])
 
 	scanner_label.text = "\n".join(lines)
 
@@ -4213,7 +4306,7 @@ func update_objective_label(target_station: Area3D) -> void:
 	var stage := "Pickup"
 	if cargo_loaded:
 		stage = "Deliver"
-	objective_label.text = "◎ %s %s %.0fm" % [stage, target_name, distance]
+	objective_label.text = "Objective: %s %s (%.0fm)" % [stage, target_name, distance]
 
 
 func _on_station_body_entered(body: Node3D, station: Area3D) -> void:
@@ -4237,8 +4330,8 @@ func _on_station_body_exited(body: Node3D, station: Area3D) -> void:
 
 func setup_cargo_route() -> void:
 	if station_order.size() < 2:
-		cargo_label.text = "▣ unavailable"
-		objective_label.text = "◎ unavailable"
+		cargo_label.text = "Route: unavailable"
+		objective_label.text = "Objective: unavailable"
 		return
 
 	cargo_loaded = false
@@ -4246,8 +4339,8 @@ func setup_cargo_route() -> void:
 	pickup_station = str(station_order[0].get_meta("station_name"))
 	var midpoint_index := int(station_order.size() / 2)
 	delivery_station = str(station_order[midpoint_index].get_meta("station_name"))
-	cargo_label.text = "▣ %s → %s" % [pickup_station, delivery_station]
-	objective_label.text = "◎ pickup %s" % pickup_station
+	cargo_label.text = "Route: %s to %s" % [pickup_station, delivery_station]
+	objective_label.text = "Objective: pickup %s" % pickup_station
 
 
 func handle_cargo_dock(station_name: String) -> void:
@@ -4256,7 +4349,7 @@ func handle_cargo_dock(station_name: String) -> void:
 	if station_name == pickup_station and not cargo_loaded:
 		cargo_loaded = true
 		title_label.text = "Cargo Loaded"
-		cargo_label.text = "▣ %s → %s" % [pickup_station, delivery_station]
+		cargo_label.text = "Route: %s to %s" % [pickup_station, delivery_station]
 		update_status("Cargo loaded at %s.\nNow travel across the system to %s." % [pickup_station, delivery_station])
 		return
 
@@ -4286,8 +4379,8 @@ func advance_cargo_route() -> void:
 	if pickup_station == delivery_station:
 		delivery_station = str(station_order[(delivery_index + 1) % station_count].get_meta("station_name"))
 
-	cargo_label.text = "▣ %s → %s" % [pickup_station, delivery_station]
-	objective_label.text = "◎ pickup %s" % pickup_station
+	cargo_label.text = "Route: %s to %s" % [pickup_station, delivery_station]
+	objective_label.text = "Objective: pickup %s" % pickup_station
 
 
 func station_name_index(name: String) -> int:

@@ -85,6 +85,16 @@ offset_bottom = 46.0
 tooltip_text = "Save the current game and graphics defaults"
 text = "⭳"
 
+[node name="HelpButton" type="Button" parent="CanvasLayer/HUD"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -174.0
+offset_top = 18.0
+offset_right = -126.0
+offset_bottom = 46.0
+tooltip_text = "Open help and settings"
+text = "?"
+
 [node name="FullscreenButton" type="Button" parent="CanvasLayer/HUD"]
 anchor_left = 1.0
 anchor_right = 1.0
@@ -192,7 +202,7 @@ offset_top = 12.0
 offset_right = 220.0
 offset_bottom = 30.0
 theme_override_font_sizes/font_size = 11
-text = "SYS"
+text = "FLIGHT"
 
 [node name="HullText" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
 offset_left = 16.0
@@ -235,7 +245,7 @@ offset_right = 234.0
 offset_bottom = 124.0
 clip_text = true
 theme_override_font_sizes/font_size = 11
-text = "⌂ none"
+text = "Nearby Dock: none"
 
 [node name="RouteValue" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
 offset_left = 16.0
@@ -245,7 +255,7 @@ offset_bottom = 170.0
 autowrap_mode = 2
 clip_text = true
 theme_override_font_sizes/font_size = 11
-text = "▣ route"
+text = "Route: unavailable"
 
 [node name="ScannerValue" type="Label" parent="CanvasLayer/HUD/LeftFrame"]
 offset_left = 16.0
@@ -255,7 +265,7 @@ offset_bottom = 206.0
 autowrap_mode = 2
 clip_text = true
 theme_override_font_sizes/font_size = 10
-text = "⌁"
+text = "Speed: 0\nGravity: 0\nBoost: idle"
 
 [node name="RightFrame" type="Panel" parent="CanvasLayer/HUD"]
 anchor_left = 1.0
@@ -274,7 +284,7 @@ offset_top = 12.0
 offset_right = 200.0
 offset_bottom = 30.0
 theme_override_font_sizes/font_size = 11
-text = "TAC"
+text = "TACTICAL"
 
 [node name="CombatValue" type="Label" parent="CanvasLayer/HUD/RightFrame"]
 offset_left = 16.0
@@ -284,7 +294,7 @@ offset_bottom = 176.0
 autowrap_mode = 2
 clip_text = true
 theme_override_font_sizes/font_size = 11
-text = "◎"
+text = "Hostiles: 0"
 
 [node name="BuildValue" type="Label" parent="CanvasLayer/HUD/RightFrame"]
 offset_left = 16.0
@@ -294,7 +304,7 @@ offset_bottom = 204.0
 horizontal_alignment = 2
 vertical_alignment = 2
 theme_override_font_sizes/font_size = 9
-text = "DBG"
+text = "Mode"
 
 [node name="MessageFrame" type="Panel" parent="CanvasLayer/HUD"]
 anchor_left = 0.5
@@ -747,6 +757,14 @@ offset_bottom = 40.0
 theme_override_font_sizes/font_size = 15
 text = "Display"
 
+[node name="ControlsButton" type="Button" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 224.0
+offset_top = 14.0
+offset_right = 320.0
+offset_bottom = 44.0
+tooltip_text = "Show keyboard and controller bindings"
+text = "Controls"
+
 [node name="PresetValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
 offset_top = 52.0
@@ -1016,3 +1034,74 @@ autowrap_mode = 2
 clip_text = true
 theme_override_font_sizes/font_size = 10
 text = "1-4 themes, Tab views, V reset, J autopilot\n\\ render, T trail, G guidance, B bloom\nM music, N SFX, P flight mode, wheel zoom\nPad: Y views, B render, R3 reset, D-pad audio/fx"
+
+[node name="ControlsPanel" type="Panel" parent="CanvasLayer/HUD"]
+visible = false
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -220.0
+offset_right = 280.0
+offset_bottom = 220.0
+clip_contents = true
+
+[node name="ControlsTitle" type="Label" parent="CanvasLayer/HUD/ControlsPanel"]
+offset_left = 20.0
+offset_top = 18.0
+offset_right = 360.0
+offset_bottom = 44.0
+theme_override_font_sizes/font_size = 15
+text = "Controls"
+
+[node name="ControlsCloseButton" type="Button" parent="CanvasLayer/HUD/ControlsPanel"]
+offset_left = 456.0
+offset_top = 14.0
+offset_right = 540.0
+offset_bottom = 44.0
+tooltip_text = "Close controls"
+text = "Close"
+
+[node name="ControlsKeyboardLabel" type="Label" parent="CanvasLayer/HUD/ControlsPanel"]
+offset_left = 20.0
+offset_top = 58.0
+offset_right = 260.0
+offset_bottom = 80.0
+theme_override_font_sizes/font_size = 12
+text = "Keyboard"
+
+[node name="ControlsKeyboardText" type="Label" parent="CanvasLayer/HUD/ControlsPanel"]
+offset_left = 20.0
+offset_top = 84.0
+offset_right = 264.0
+offset_bottom = 366.0
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 11
+text = ""
+
+[node name="ControlsControllerLabel" type="Label" parent="CanvasLayer/HUD/ControlsPanel"]
+offset_left = 296.0
+offset_top = 58.0
+offset_right = 540.0
+offset_bottom = 80.0
+theme_override_font_sizes/font_size = 12
+text = "Controller"
+
+[node name="ControlsControllerText" type="Label" parent="CanvasLayer/HUD/ControlsPanel"]
+offset_left = 296.0
+offset_top = 84.0
+offset_right = 540.0
+offset_bottom = 366.0
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 11
+text = ""
+
+[node name="ControlsHint" type="Label" parent="CanvasLayer/HUD/ControlsPanel"]
+offset_left = 20.0
+offset_top = 384.0
+offset_right = 540.0
+offset_bottom = 410.0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 11
+text = "Press Esc, H, Back, or Close to return"
