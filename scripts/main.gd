@@ -18,6 +18,7 @@ const CONTROLLER_CAMERA_SPEED := Vector2(2.6, 1.9)
 const CHASE_BIAS_DELAY := 0.8
 const CHASE_BIAS_SPEED := 0.42
 const CHASE_PITCH_TARGET := -0.14
+const PHONE_LAYOUT_BREAKPOINT := 760.0
 const CINEMATIC_IDLE_DELAY := 60.0
 const CINEMATIC_BLEND_IN_SPEED := 0.42
 const CINEMATIC_BLEND_OUT_SPEED := 1.8
@@ -139,6 +140,7 @@ const STATION_LAYOUT := [
 @onready var edge_pass: ColorRect = $CanvasLayer/EdgePass
 @onready var title_label: Label = $CanvasLayer/HUD/TitleLabel
 @onready var debug_save_defaults_button: Button = $CanvasLayer/HUD/DebugSaveDefaultsButton
+@onready var fullscreen_button: Button = $CanvasLayer/HUD/FullscreenButton
 @onready var cinematic_top_bar: ColorRect = $CanvasLayer/HUD/CinematicTopBar
 @onready var cinematic_bottom_bar: ColorRect = $CanvasLayer/HUD/CinematicBottomBar
 @onready var dock_label: Label = $CanvasLayer/HUD/DockLabel
@@ -224,6 +226,10 @@ var objective_marker: MeshInstance3D
 var objective_flash_time := 0.0
 var objective_guidance_enabled := false
 var star_node: Node3D
+var star_beacon_root: Node3D
+var star_beacon_nodes: Array[MeshInstance3D] = []
+var star_flare_root: Node3D
+var star_flare_nodes: Array[MeshInstance3D] = []
 var sunlight: DirectionalLight3D
 var planet_bodies := []
 var planet_nodes_by_name := {}
@@ -290,6 +296,10 @@ var idle_input_timer := 0.0
 var cinematic_mode_active := false
 var cinematic_blend := 0.0
 var cinematic_time := 0.0
+var last_viewport_size := Vector2.ZERO
+var objective_marker_base_mesh: Mesh
+var enemy_target_marker_base_mesh: Mesh
+var enemy_target_lead_base_mesh: Mesh
 
 
 func _ready() -> void:
@@ -340,6 +350,8 @@ func _ready() -> void:
 	apply_visual_preset()
 	player.call("set_camera_view", camera_mode)
 	connect_settings_controls()
+	update_responsive_hud_layout(true)
+	update_window_controls()
 
 	paused = true
 	title_label.text = "Station420"
@@ -359,6 +371,7 @@ func connect_settings_controls() -> void:
 	preset_prev_button.pressed.connect(_on_preset_prev_pressed)
 	preset_next_button.pressed.connect(_on_preset_next_pressed)
 	debug_save_defaults_button.pressed.connect(_on_debug_save_defaults_pressed)
+	fullscreen_button.pressed.connect(_on_fullscreen_pressed)
 	render_mode_button.pressed.connect(_on_render_mode_pressed)
 	bloom_button.pressed.connect(_on_bloom_pressed)
 	music_slider.value_changed.connect(_on_music_slider_changed)
@@ -452,7 +465,12 @@ func _on_debug_save_defaults_pressed() -> void:
 	save_current_defaults()
 
 
+func _on_fullscreen_pressed() -> void:
+	toggle_fullscreen_mode()
+
+
 func _process(delta: float) -> void:
+	update_responsive_hud_layout()
 	update_boot_screen(delta)
 	update_music_stream()
 	update_alert(delta)
@@ -509,6 +527,7 @@ func update_cinematic_overlay() -> void:
 	var hud_alpha: float = 1.0 - cinematic_blend
 	for node in [
 		debug_save_defaults_button,
+		fullscreen_button,
 		top_frame,
 		left_frame,
 		right_frame,
@@ -758,15 +777,17 @@ func create_star() -> void:
 	add_child(star_node)
 
 	var star_mesh := MeshInstance3D.new()
+	star_mesh.name = "StarWire"
 	star_mesh.mesh = build_planet_mesh(STAR_RADIUS)
 	mark_mesh_wireframe_only(star_mesh)
-	register_style_mesh(star_mesh, "danger", Color(1.0, 0.84, 0.28))
+	register_style_mesh(star_mesh, "star", Color(1.0, 0.84, 0.28))
 	star_node.add_child(star_mesh)
 
 	var star_solid := MeshInstance3D.new()
+	star_solid.name = "StarSolid"
 	star_solid.mesh = build_planet_solid_mesh(STAR_RADIUS)
 	mark_mesh_solid_only(star_solid)
-	register_style_mesh(star_solid, "danger", Color(1.0, 0.84, 0.28))
+	register_style_mesh(star_solid, "star", Color(1.0, 0.84, 0.28))
 	star_node.add_child(star_solid)
 
 	var star_corona := MeshInstance3D.new()
@@ -786,6 +807,59 @@ func create_star() -> void:
 	corona_material.emission = Color(1.0, 0.72, 0.22) * 1.9
 	star_corona.material_override = corona_material
 	star_node.add_child(star_corona)
+
+	star_beacon_root = Node3D.new()
+	star_beacon_root.name = "StarBeacon"
+	star_node.add_child(star_beacon_root)
+	star_beacon_nodes.clear()
+	var beacon_specs := [
+		{"size": 6800.0, "color": Color(1.0, 0.86, 0.38, 0.16)},
+		{"size": 3200.0, "color": Color(1.0, 0.74, 0.22, 0.12)}
+	]
+	for beacon_spec in beacon_specs:
+		var beacon := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2(beacon_spec["size"], beacon_spec["size"])
+		beacon.mesh = quad
+		var beacon_material := StandardMaterial3D.new()
+		beacon_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		beacon_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		beacon_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		beacon_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		beacon_material.albedo_color = beacon_spec["color"]
+		beacon_material.emission_enabled = true
+		beacon_material.emission = Color(beacon_spec["color"].r, beacon_spec["color"].g, beacon_spec["color"].b) * 2.2
+		beacon.material_override = beacon_material
+		star_beacon_root.add_child(beacon)
+		star_beacon_nodes.append(beacon)
+
+	star_flare_root = Node3D.new()
+	star_flare_root.name = "SolarFlare"
+	star_node.add_child(star_flare_root)
+	star_flare_nodes.clear()
+	var flare_specs := [
+		{"size": 9800.0, "offset": 0.0, "color": Color(1.0, 0.82, 0.42, 0.12)},
+		{"size": 5200.0, "offset": 8600.0, "color": Color(1.0, 0.62, 0.28, 0.1)},
+		{"size": 2600.0, "offset": -6200.0, "color": Color(1.0, 0.92, 0.6, 0.08)},
+		{"size": 1400.0, "offset": 12400.0, "color": Color(1.0, 0.52, 0.24, 0.07)}
+	]
+	for flare_spec in flare_specs:
+		var flare := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2(flare_spec["size"], flare_spec["size"])
+		flare.mesh = quad
+		var flare_material := StandardMaterial3D.new()
+		flare_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		flare_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		flare_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		flare_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		flare_material.albedo_color = flare_spec["color"]
+		flare_material.emission_enabled = true
+		flare_material.emission = Color(flare_spec["color"].r, flare_spec["color"].g, flare_spec["color"].b) * 1.7
+		flare.material_override = flare_material
+		flare.set_meta("flare_offset", float(flare_spec["offset"]))
+		star_flare_root.add_child(flare)
+		star_flare_nodes.append(flare)
 
 	var star_halo := MeshInstance3D.new()
 	star_halo.mesh = build_ring_mesh(STAR_RADIUS * 1.5, 48)
@@ -1126,19 +1200,23 @@ func create_objective_visuals() -> void:
 
 	objective_marker = MeshInstance3D.new()
 	objective_marker.name = "ObjectiveMarker"
+	objective_marker_base_mesh = build_ring_mesh(8.5, 36)
+	objective_marker.mesh = objective_marker_base_mesh
 	register_style_mesh(objective_marker, "objective", Color(0.45, 1.0, 0.85))
 	add_child(objective_marker)
 
 	enemy_target_marker = MeshInstance3D.new()
 	enemy_target_marker.name = "EnemyTargetMarker"
-	enemy_target_marker.mesh = build_enemy_target_marker_mesh(18.0)
+	enemy_target_marker_base_mesh = build_enemy_target_marker_mesh(18.0)
+	enemy_target_marker.mesh = enemy_target_marker_base_mesh
 	register_style_mesh(enemy_target_marker, "target", Color(1.0, 0.52, 0.42))
 	enemy_target_marker.visible = false
 	add_child(enemy_target_marker)
 
 	enemy_target_lead_marker = MeshInstance3D.new()
 	enemy_target_lead_marker.name = "EnemyTargetLeadMarker"
-	enemy_target_lead_marker.mesh = build_target_lead_marker_mesh(8.0)
+	enemy_target_lead_base_mesh = build_target_lead_marker_mesh(8.0)
+	enemy_target_lead_marker.mesh = enemy_target_lead_base_mesh
 	register_style_mesh(enemy_target_lead_marker, "objective", Color(0.72, 0.96, 1.0))
 	enemy_target_lead_marker.visible = false
 	add_child(enemy_target_lead_marker)
@@ -1350,8 +1428,28 @@ func update_attitude_indicator() -> void:
 	if attitude_ball == null:
 		return
 	var ship_basis: Basis = player.call("get_visual_basis")
-	attitude_ball.transform.basis = ship_basis.orthonormalized()
-	attitude_ball.rotation.z = Time.get_ticks_msec() * 0.00042
+	var reference_basis := get_attitude_reference_basis()
+	var relative_basis := reference_basis.inverse() * ship_basis.orthonormalized()
+	attitude_ball.transform.basis = relative_basis.orthonormalized()
+	attitude_needle.transform.basis = Basis.IDENTITY
+
+
+func get_attitude_reference_basis() -> Basis:
+	var solar_up := Vector3.UP
+	var sun_direction := (-player.global_position).normalized()
+	if star_node != null and is_instance_valid(star_node):
+		sun_direction = (star_node.global_position - player.global_position).normalized()
+	if sun_direction.length() <= 0.001:
+		sun_direction = Vector3.FORWARD
+	var sun_on_plane := sun_direction - solar_up * sun_direction.dot(solar_up)
+	if sun_on_plane.length() <= 0.001:
+		sun_on_plane = Vector3.FORWARD
+	sun_on_plane = sun_on_plane.normalized()
+	var solar_right := solar_up.cross(-sun_on_plane).normalized()
+	if solar_right.length() <= 0.001:
+		solar_right = Vector3.RIGHT
+	var forward := solar_right.cross(solar_up).normalized()
+	return Basis(solar_right, solar_up, -forward).orthonormalized()
 
 
 func update_attitude_indicator_theme() -> void:
@@ -1638,6 +1736,16 @@ func build_style_material(role: String, base_color: Color, render_variant: Strin
 	var color := resolve_style_color(role, base_color)
 	material.albedo_color = color
 	var is_shaded_solid := shaded_mode and render_variant == "solid"
+	if role == "star":
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.emission_enabled = true
+		material.emission = color * (2.8 if shaded_mode else 1.85)
+		if render_variant == "solid":
+			material.cull_mode = BaseMaterial3D.CULL_BACK
+			material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_OPAQUE_ONLY
+			material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+			material.albedo_color = color.lerp(Color(1.0, 0.72, 0.18), 0.18)
+		return material
 	if shaded_mode:
 		if role == "station":
 			material.albedo_color = color.lerp(Color(0.72, 0.78, 0.86), 0.78)
@@ -1787,6 +1895,7 @@ func apply_hud_style() -> void:
 	sfx_value.modulate = hud_color
 	settings_hint.modulate = accent_color
 	settings_hotkeys.modulate = hud_color
+	apply_button_styles(hud_color, accent_color, alert_color)
 	start_progress_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.84), accent_color, 10))
 	start_progress_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.08, 0.11, 0.16, 0.96), hud_color.darkened(0.55)))
 	start_progress_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(hud_color.r * 0.78, hud_color.g * 0.96, 1.0, 0.98), accent_color))
@@ -1805,6 +1914,40 @@ func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Colo
 	hull_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(alert_color.r, alert_color.g * 0.85, alert_color.b * 0.85, 0.98), accent_color))
 	shield_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.08, 0.11, 0.16, 0.92), hud_color.darkened(0.55)))
 	shield_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(hud_color.r * 0.72, hud_color.g * 0.9, 1.0, 0.98), accent_color))
+
+
+func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Color) -> void:
+	var primary_style := make_button_stylebox(Color(0.03, 0.05, 0.08, 0.86), accent_color)
+	var hot_style := make_button_stylebox(Color(0.08, 0.06, 0.06, 0.9), alert_color)
+	for button in [
+		fullscreen_button,
+		preset_prev_button,
+		preset_next_button,
+		render_mode_button,
+		bloom_button,
+		music_button,
+		sfx_button,
+		trail_button,
+		guidance_button,
+		invert_y_button,
+		physics_mode_button
+	]:
+		if button == null:
+			continue
+		button.add_theme_stylebox_override("normal", primary_style)
+		button.add_theme_stylebox_override("hover", make_button_stylebox(Color(0.07, 0.09, 0.13, 0.96), accent_color.lightened(0.1)))
+		button.add_theme_stylebox_override("pressed", make_button_stylebox(Color(0.12, 0.15, 0.2, 0.98), accent_color))
+		button.add_theme_color_override("font_color", accent_color)
+		button.add_theme_color_override("font_hover_color", Color.WHITE)
+		button.add_theme_color_override("font_pressed_color", Color.WHITE)
+		button.add_theme_font_size_override("font_size", 18)
+	debug_save_defaults_button.add_theme_stylebox_override("normal", hot_style)
+	debug_save_defaults_button.add_theme_stylebox_override("hover", make_button_stylebox(Color(0.12, 0.08, 0.08, 0.94), alert_color.lightened(0.12)))
+	debug_save_defaults_button.add_theme_stylebox_override("pressed", make_button_stylebox(Color(0.16, 0.1, 0.1, 0.98), alert_color))
+	debug_save_defaults_button.add_theme_color_override("font_color", alert_color)
+	debug_save_defaults_button.add_theme_color_override("font_hover_color", Color.WHITE)
+	debug_save_defaults_button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	debug_save_defaults_button.add_theme_font_size_override("font_size", 18)
 
 
 func make_panel_stylebox(background: Color, border: Color, radius: int) -> StyleBoxFlat:
@@ -1834,6 +1977,24 @@ func make_bar_stylebox(background: Color, border: Color) -> StyleBoxFlat:
 	style.corner_radius_top_right = 8
 	style.corner_radius_bottom_right = 8
 	style.corner_radius_bottom_left = 8
+	return style
+
+
+func make_button_stylebox(background: Color, border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(2)
+	style.corner_radius_top_left = 14
+	style.corner_radius_top_right = 14
+	style.corner_radius_bottom_right = 14
+	style.corner_radius_bottom_left = 14
+	style.content_margin_left = 8.0
+	style.content_margin_top = 4.0
+	style.content_margin_right = 8.0
+	style.content_margin_bottom = 4.0
+	style.shadow_color = Color(0, 0, 0, 0.28)
+	style.shadow_size = 8
 	return style
 
 
@@ -1954,14 +2115,6 @@ func update_settings_label() -> void:
 	guidance_value.text = "Guidance: %s" % ("On" if objective_guidance_enabled else "Off")
 	invert_y_value.text = "Invert Y: %s" % ("On" if invert_y_axis else "Off")
 	physics_mode_value.text = "Flight Mode: %s" % flight_physics_mode.capitalize()
-	render_mode_button.text = "Mode: %s" % ("Shaded" if shaded_mode else "Wire")
-	bloom_button.text = "Bloom: %s" % ("On" if bloom_enabled else "Off")
-	music_button.text = "Music: %s" % ("On" if music_enabled else "Off")
-	sfx_button.text = "SFX: %s" % ("On" if sfx_enabled else "Off")
-	trail_button.text = "Trail: %s" % ("On" if trail_active else "Off")
-	guidance_button.text = "Guide: %s" % ("On" if objective_guidance_enabled else "Off")
-	invert_y_button.text = "Y: %s" % ("Inv" if invert_y_axis else "Norm")
-	physics_mode_button.text = "Mode: %s" % flight_physics_mode.capitalize()
 	edge_threshold_value.text = "Edge Threshold: %.2f" % edge_threshold
 	edge_strength_value.text = "Edge Strength: %d%%" % int(round(edge_strength_scale * 100.0))
 	edge_glow_value.text = "Edge Glow: %d%%" % int(round(edge_glow_scale * 100.0))
@@ -3066,7 +3219,7 @@ func update_enemy_target_marker() -> void:
 	var vertical_offset := Vector3(0, 16.0 + sin(Time.get_ticks_msec() * 0.0028) * 1.6, 0)
 	enemy_target_marker.visible = true
 	enemy_target_marker.global_position = target.global_position + vertical_offset
-	enemy_target_marker.mesh = build_enemy_target_marker_mesh(18.0 * pulse)
+	enemy_target_marker.scale = Vector3.ONE * pulse
 	enemy_target_marker.rotate_y(0.018)
 	enemy_target_marker.rotate_z(0.01)
 	var target_velocity: Vector3 = target.get_meta("velocity", Vector3.ZERO)
@@ -3074,7 +3227,8 @@ func update_enemy_target_marker() -> void:
 	if enemy_target_lead_marker != null:
 		enemy_target_lead_marker.visible = true
 		enemy_target_lead_marker.global_position = lead_position
-		enemy_target_lead_marker.mesh = build_target_lead_marker_mesh(7.0 + sin(Time.get_ticks_msec() * 0.006) * 0.6)
+		var lead_pulse: float = 0.88 + sin(Time.get_ticks_msec() * 0.006) * 0.08
+		enemy_target_lead_marker.scale = Vector3.ONE * lead_pulse
 		enemy_target_lead_marker.look_at(player.global_position, Vector3.UP)
 		enemy_target_lead_marker.rotate_z(Time.get_ticks_msec() * 0.0012)
 	if enemy_target_label != null:
@@ -3123,17 +3277,57 @@ func update_effects(delta: float) -> void:
 			effect.scale = Vector3.ONE * (1.0 + life * 3.2)
 			effect.rotate_y(delta * 2.8)
 		else:
-			var base_radius: float = effect.get_meta("base_radius", 12.0)
 			var alpha: float = (1.0 - normalized_life)
 			effect.scale = Vector3.ONE * (1.0 + normalized_life * 2.6)
 			effect.rotate_z(delta * 1.3)
 			effect.rotate_y(delta * 0.9)
 			effect.set_meta("style_base_color", Color(0.68, 0.96, 1.0, alpha * 0.78))
 			apply_mesh_style(effect)
-			effect.mesh = build_ring_mesh(base_radius * (1.0 + normalized_life * 0.42), 48)
 		if life > duration:
 			effect.queue_free()
 			transient_effects.remove_at(i)
+
+
+func update_star_flare() -> void:
+	if star_node == null or not is_instance_valid(star_node):
+		return
+	var to_star: Vector3 = star_node.global_position - camera.global_position
+	var distance: float = max(to_star.length(), 1.0)
+	var direction: Vector3 = to_star / distance
+	var camera_forward: Vector3 = -camera.global_basis.z.normalized()
+	var alignment: float = clamp(camera_forward.dot(direction), 0.0, 1.0)
+	var visibility: float = pow(alignment, 2.4)
+	if star_beacon_root != null and not star_beacon_nodes.is_empty():
+		star_beacon_root.visible = true
+		var beacon_up: Vector3 = get_safe_up_vector(direction, camera.global_basis.y)
+		star_beacon_root.global_basis = Basis.looking_at(direction, beacon_up, true)
+		for beacon in star_beacon_nodes:
+			if beacon == null or not is_instance_valid(beacon):
+				continue
+			var beacon_material := beacon.material_override as StandardMaterial3D
+			if beacon_material != null:
+				var beacon_color := beacon_material.albedo_color
+				beacon_color.a = clamp(0.06 + visibility * 0.16, 0.0, 0.22)
+				beacon_material.albedo_color = beacon_color
+				beacon_material.emission = Color(beacon_color.r, beacon_color.g, beacon_color.b) * (1.5 + visibility * 2.1)
+	if star_flare_root == null or star_flare_nodes.is_empty():
+		return
+	star_flare_root.visible = visibility > 0.01
+	if not star_flare_root.visible:
+		return
+	var up: Vector3 = get_safe_up_vector(direction, camera.global_basis.y)
+	star_flare_root.global_basis = Basis.looking_at(direction, up, true)
+	for flare in star_flare_nodes:
+		if flare == null or not is_instance_valid(flare):
+			continue
+		var flare_offset: float = float(flare.get_meta("flare_offset", 0.0))
+		flare.position = Vector3(0, 0, flare_offset)
+		var material := flare.material_override as StandardMaterial3D
+		if material != null:
+			var color := material.albedo_color
+			color.a = clamp(visibility * color.a * 6.5, 0.0, 0.34)
+			material.albedo_color = color
+			material.emission = Color(color.r, color.g, color.b) * (0.8 + visibility * 1.4)
 
 
 func get_cinematic_target_position() -> Vector3:
@@ -3230,6 +3424,7 @@ func update_camera(delta: float) -> void:
 	camera.global_position = base_position
 	var look_direction: Vector3 = (base_look_point - base_position).normalized()
 	camera.look_at(base_look_point, get_safe_up_vector(look_direction, ship_basis.y))
+	update_star_flare()
 	reticle.visible = cinematic_blend < 0.02
 
 
@@ -3264,7 +3459,7 @@ func update_objective_visuals(delta: float) -> void:
 	var station_position := target_station.global_position
 	var pulse := 1.0 + sin(Time.get_ticks_msec() * 0.002) * 0.14
 	objective_marker.global_position = station_position + Vector3(0, 0, 18)
-	objective_marker.mesh = build_ring_mesh(8.5 * pulse, 36)
+	objective_marker.scale = Vector3.ONE * pulse
 	objective_marker.visible = true
 
 	var line_color := Color(0.5, 0.95, 0.7)
@@ -3279,6 +3474,80 @@ func update_objective_visuals(delta: float) -> void:
 	objective_line.visible = true
 
 	update_objective_label(target_station)
+
+
+func update_responsive_hud_layout(force: bool = false) -> void:
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	if not force and viewport_size == last_viewport_size:
+		return
+	last_viewport_size = viewport_size
+	var margin := 14.0 if viewport_size.x <= PHONE_LAYOUT_BREAKPOINT else 22.0
+	var compact := viewport_size.x <= PHONE_LAYOUT_BREAKPOINT
+	var side_width: float = min(256.0, max(172.0, viewport_size.x * (0.44 if compact else 0.22)))
+	var side_height := 166.0 if compact else 214.0
+	var bottom_margin := 14.0 if compact else 22.0
+	var top_height := 176.0 if compact else 228.0
+	var top_width: float = min(viewport_size.x - margin * 2.0, 560.0 if compact else 500.0)
+	top_frame.offset_left = -top_width * 0.5
+	top_frame.offset_right = top_width * 0.5
+	top_frame.offset_top = margin
+	top_frame.offset_bottom = margin + top_height
+	attitude_display.offset_left = -72.0 if compact else -78.0
+	attitude_display.offset_right = 72.0 if compact else 78.0
+	attitude_display.offset_top = 54.0 if compact else 50.0
+	attitude_display.offset_bottom = 198.0 if compact else 206.0
+	left_frame.offset_left = margin
+	left_frame.offset_right = margin + side_width
+	left_frame.offset_top = -side_height - bottom_margin
+	left_frame.offset_bottom = -bottom_margin
+	right_frame.offset_left = -margin - side_width
+	right_frame.offset_right = -margin
+	right_frame.offset_top = -side_height - bottom_margin
+	right_frame.offset_bottom = -bottom_margin
+	var message_width: float = viewport_size.x - margin * 2.0 - (0.0 if compact else side_width * 0.18)
+	message_frame.offset_left = -message_width * 0.5
+	message_frame.offset_right = message_width * 0.5
+	message_frame.offset_top = -(86.0 if compact else 92.0)
+	message_frame.offset_bottom = -(18.0 if compact else 24.0)
+	debug_save_defaults_button.offset_left = -120.0
+	debug_save_defaults_button.offset_right = -72.0
+	debug_save_defaults_button.offset_top = margin
+	debug_save_defaults_button.offset_bottom = margin + 28.0
+	fullscreen_button.offset_left = -66.0
+	fullscreen_button.offset_right = -22.0
+	fullscreen_button.offset_top = margin
+	fullscreen_button.offset_bottom = margin + 28.0
+	var settings_width := viewport_size.x - margin * 2.0 if compact else 340.0
+	settings_panel.anchor_left = 0.0 if compact else 1.0
+	settings_panel.anchor_right = 1.0
+	settings_panel.offset_left = margin if compact else -settings_width - 24.0
+	settings_panel.offset_right = -margin if compact else -24.0
+	settings_panel.offset_top = margin
+	settings_panel.offset_bottom = min(viewport_size.y - margin, 746.0 if not compact else viewport_size.y - margin)
+	if compact:
+		cockpit_overlay.scale = Vector2(0.82, 0.82)
+	else:
+		cockpit_overlay.scale = Vector2.ONE
+
+
+func toggle_fullscreen_mode() -> void:
+	var window := get_window()
+	if window == null:
+		return
+	if window.mode == Window.MODE_FULLSCREEN or window.mode == Window.MODE_EXCLUSIVE_FULLSCREEN:
+		window.mode = Window.MODE_WINDOWED
+	else:
+		window.mode = Window.MODE_FULLSCREEN
+	update_window_controls()
+
+
+func update_window_controls() -> void:
+	var window := get_window()
+	if window == null:
+		return
+	var is_fullscreen := window.mode == Window.MODE_FULLSCREEN or window.mode == Window.MODE_EXCLUSIVE_FULLSCREEN
+	fullscreen_button.text = "❐" if is_fullscreen else "⛶"
+	fullscreen_button.tooltip_text = "Exit fullscreen" if is_fullscreen else "Enter fullscreen"
 
 
 func update_contextual_line_visibility() -> void:

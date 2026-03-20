@@ -19,6 +19,7 @@ const MOUSE_LOOK_PRIORITY_TIME := 0.35
 @export var keyboard_look_speed := 1.8
 @export var controller_look_speed := Vector2(2.2, 1.6)
 @export var controller_look_response := 10.0
+@export var roll_speed := 1.9
 @export var banking_angle := 0.24
 @export var pitch_angle := 0.12
 @export var arena_limit := Vector3(8400, 1800, 8400)
@@ -30,6 +31,7 @@ var solid_hull_instance: MeshInstance3D
 var trail_points := PackedVector3Array()
 var trail_mesh_instance: MeshInstance3D
 var trail_accumulator := 0.0
+var trail_dirty := false
 var gravity_acceleration := Vector3.ZERO
 var engine_mesh_instance: MeshInstance3D
 var main_thruster_audio: AudioStreamPlayer3D
@@ -38,6 +40,7 @@ var boost_active := false
 var trail_enabled := false
 var yaw := 0.0
 var pitch := 0.0
+var roll := 0.0
 var look_input := Vector2.ZERO
 var mouse_look_priority_timer := 0.0
 var controller_look_state := Vector2.ZERO
@@ -137,7 +140,7 @@ func _physics_process(delta: float) -> void:
 	boost_active = Input.is_key_pressed(KEY_SHIFT) or is_controller_boost_pressed()
 	if control_lock:
 		boost_active = false
-	var target_basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch)
+	var target_basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch) * Basis(Vector3.BACK, roll)
 	visual.global_basis = visual.global_basis.orthonormalized().slerp(
 		target_basis.orthonormalized(),
 		clamp(delta * turn_speed, 0.0, 1.0)
@@ -174,6 +177,11 @@ func apply_keyboard_look(delta: float) -> void:
 		keyboard_look.y += keyboard_look_speed * delta * 0.75
 	if Input.is_key_pressed(KEY_DOWN):
 		keyboard_look.y -= keyboard_look_speed * delta * 0.75
+	if Input.is_key_pressed(KEY_Q):
+		roll += roll_speed * delta
+	if Input.is_key_pressed(KEY_E):
+		roll -= roll_speed * delta
+	roll = wrapf(roll, -PI, PI)
 	look_input += keyboard_look
 
 
@@ -250,7 +258,12 @@ func toggle_motion_trail() -> bool:
 	trail_enabled = not trail_enabled
 	if not trail_enabled:
 		trail_points.clear()
+		trail_dirty = false
 		trail_mesh_instance.mesh = null
+	else:
+		trail_points.clear()
+		trail_points.append(global_position)
+		trail_dirty = true
 	return trail_enabled
 
 
@@ -359,7 +372,8 @@ func set_spawn_orientation(forward: Vector3) -> void:
 		target_forward = Vector3.FORWARD
 	yaw = atan2(-target_forward.x, -target_forward.z)
 	pitch = clamp(asin(target_forward.y), -0.95, 0.95)
-	var target_basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch)
+	roll = 0.0
+	var target_basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch) * Basis(Vector3.BACK, roll)
 	visual.global_basis = target_basis.orthonormalized()
 
 
@@ -542,6 +556,10 @@ func update_trail(delta: float) -> void:
 		trail_points.append(global_position + get_visual_basis() * Vector3(0, 0, 2.8))
 		while trail_points.size() > (26 if boost_active else 18):
 			trail_points.remove_at(0)
+		trail_dirty = true
+
+	if not trail_dirty:
+		return
 
 	var vertices := PackedVector3Array()
 	for i in range(trail_points.size() - 1):
@@ -558,6 +576,7 @@ func update_trail(delta: float) -> void:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
 	trail_mesh_instance.mesh = mesh
+	trail_dirty = false
 
 
 func wrap_position(value: Vector3) -> Vector3:
