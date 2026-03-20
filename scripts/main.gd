@@ -62,6 +62,7 @@ const ENEMY_CONTACT_DAMAGE := 24.0
 const PLAYER_FIRE_RANGE := 1800.0
 const ENEMY_SPAWN_COUNT := 4
 const PLAYER_COLLISION_RADIUS := 9.0
+const PROXIMITY_ALARM_COOLDOWN := 3.2
 const PLANET_COLLISION_MARGIN := 120.0
 const STAR_COLLISION_MARGIN := 320.0
 const STATION_COLLISION_RADIUS := 120.0
@@ -254,6 +255,7 @@ var nearby_station: Area3D = null
 var dock_count := 0
 var station_order: Array[Area3D] = []
 var station_nodes_by_name := {}
+var traffic_ships: Array[Node3D] = []
 var selected_target_station_name := ""
 var shipping_lane_nodes: Array[MeshInstance3D] = []
 var pickup_station := ""
@@ -302,6 +304,7 @@ var fire_cooldown := 0.0
 var shield_recharge_delay := 0.0
 var enemy_respawn_timer := 0.0
 var alert_timer := 0.0
+var proximity_alarm_timer := 0.0
 var hit_timer := 0.0
 var paused := false
 var game_over_state := false
@@ -319,11 +322,11 @@ var music_volume := 0.72
 var sfx_volume := 0.85
 var invert_y_axis := false
 var flight_physics_mode := "game"
-var edge_threshold := 0.12
-var edge_strength_scale := 0.72
-var edge_glow_scale := 0.58
-var blur_strength_scale := 0.7
-var wire_shader_scale := 0.32
+var edge_threshold := 0.2
+var edge_strength_scale := 0.64
+var edge_glow_scale := 0.24
+var blur_strength_scale := 0.22
+var wire_shader_scale := 0.14
 var edge_shader_enabled := true
 var blur_shader_enabled := true
 var attitude_shader_enabled := true
@@ -419,6 +422,7 @@ func _ready() -> void:
 	create_shipping_lanes()
 	create_navigation_beacons()
 	create_destroyer_fleet()
+	create_traffic_ships()
 	create_objective_visuals()
 	setup_cargo_route()
 	call_deferred("spawn_initial_enemies")
@@ -800,6 +804,7 @@ func _process(delta: float) -> void:
 	update_station_navigation_lights()
 	update_station_spin(delta)
 	update_destroyer_fleet(delta)
+	update_traffic_ships(delta)
 	hud_stats_refresh_timer = max(hud_stats_refresh_timer - delta, 0.0)
 	if hud_stats_refresh_timer == 0.0:
 		update_scanner()
@@ -1571,6 +1576,54 @@ func create_destroyer_fleet() -> void:
 		destroyer_fleet.append(destroyer)
 
 
+func create_traffic_ships() -> void:
+	var traffic_layout := [
+		{"name": "Patrol Ilex", "class": "police_interceptor", "speed": 420.0, "role": "target", "color": Color(0.56, 0.88, 1.0)},
+		{"name": "Vigil Lance", "class": "police_interceptor", "speed": 390.0, "role": "target", "color": Color(0.52, 0.84, 1.0)},
+		{"name": "Morrow Cartage", "class": "heavy_hauler", "speed": 165.0, "role": "station", "color": Color(0.9, 0.84, 0.62)},
+		{"name": "Bulkrunner Saint Vesta", "class": "heavy_hauler", "speed": 150.0, "role": "station", "color": Color(0.86, 0.8, 0.66)},
+		{"name": "Kestrel Ward", "class": "corvette", "speed": 245.0, "role": "station", "color": Color(0.74, 0.86, 1.0)},
+		{"name": "Signal Kite", "class": "courier", "speed": 520.0, "role": "objective", "color": Color(0.74, 1.0, 0.86)},
+		{"name": "Pilgrim Tender", "class": "salvage_tug", "speed": 185.0, "role": "lane", "color": Color(0.72, 0.9, 0.94)}
+	]
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+
+	for ship_data in traffic_layout:
+		var ship := Node3D.new()
+		ship.name = str(ship_data["name"])
+		ship.set_meta("traffic_class", ship_data["class"])
+		ship.set_meta("traffic_speed", ship_data["speed"])
+		ship.set_meta("velocity", Vector3.ZERO)
+		ship.set_meta("traffic_role", ship_data["role"])
+		ship.position = get_random_system_waypoint(rng)
+
+		var wire_mesh := MeshInstance3D.new()
+		wire_mesh.mesh = build_traffic_ship_mesh(str(ship_data["class"]))
+		mark_mesh_wireframe_only(wire_mesh)
+		register_style_mesh(wire_mesh, str(ship_data["role"]), ship_data["color"])
+		ship.add_child(wire_mesh)
+
+		var solid_mesh := MeshInstance3D.new()
+		solid_mesh.mesh = build_traffic_ship_solid_mesh(str(ship_data["class"]))
+		mark_mesh_solid_only(solid_mesh)
+		register_style_mesh(solid_mesh, str(ship_data["role"]), ship_data["color"])
+		ship.add_child(solid_mesh)
+
+		var label := Label3D.new()
+		label.text = "%s\n%s" % [str(ship_data["name"]), format_traffic_class_name(str(ship_data["class"]))]
+		label.position = Vector3(0, 22, 0)
+		label.font_size = 22
+		label.no_depth_test = true
+		register_style_label(label, "label", Color.WHITE)
+		ship.add_child(label)
+
+		add_traffic_nav_lights(ship, str(ship_data["class"]), ship_data["color"])
+		assign_traffic_destination(ship, rng, true)
+		add_child(ship)
+		traffic_ships.append(ship)
+
+
 func create_objective_visuals() -> void:
 	objective_line = MeshInstance3D.new()
 	objective_line.name = "ObjectiveLine"
@@ -1636,12 +1689,112 @@ func update_destroyer_fleet(delta: float) -> void:
 		destroyer.look_at(next_position, Vector3.UP, true)
 
 
+func update_traffic_ships(delta: float) -> void:
+	for ship in traffic_ships:
+		if not is_instance_valid(ship):
+			continue
+		var target: Vector3 = ship.get_meta("traffic_target", ship.global_position)
+		var to_target: Vector3 = target - ship.global_position
+		if to_target.length() < 140.0:
+			var rng := RandomNumberGenerator.new()
+			rng.randomize()
+			assign_traffic_destination(ship, rng)
+			target = ship.get_meta("traffic_target", ship.global_position)
+			to_target = target - ship.global_position
+		var desired_velocity := Vector3.ZERO
+		if to_target.length() > 1.0:
+			desired_velocity = to_target.normalized() * float(ship.get_meta("traffic_speed", 180.0))
+		var velocity: Vector3 = ship.get_meta("velocity", Vector3.ZERO)
+		velocity = velocity.lerp(desired_velocity, min(delta * 0.55, 1.0))
+		ship.set_meta("velocity", velocity)
+		ship.global_position += velocity * delta
+		if velocity.length() > 4.0:
+			ship.look_at(ship.global_position + velocity.normalized() * 22.0, Vector3.UP, true)
+
+
 func compute_destroyer_position(orbit_radius: float, phase: float, height: float) -> Vector3:
 	return Vector3(
 		cos(phase) * orbit_radius,
 		height + sin(phase * 2.0) * 42.0,
 		sin(phase) * orbit_radius
 	)
+
+
+func assign_traffic_destination(ship: Node3D, rng: RandomNumberGenerator, initial: bool = false) -> void:
+	if ship == null:
+		return
+	var destination := get_random_system_waypoint(rng)
+	if not initial:
+		var attempts := 0
+		while ship.global_position.distance_to(destination) < 2600.0 and attempts < 6:
+			destination = get_random_system_waypoint(rng)
+			attempts += 1
+	ship.set_meta("traffic_target", destination)
+
+
+func get_random_system_waypoint(rng: RandomNumberGenerator) -> Vector3:
+	if station_order.size() > 0 and rng.randf() < 0.62:
+		var station: Area3D = station_order[rng.randi_range(0, station_order.size() - 1)]
+		if station != null and is_instance_valid(station):
+			var offset := Vector3(
+				rng.randf_range(-1800.0, 1800.0),
+				rng.randf_range(-260.0, 260.0),
+				rng.randf_range(-1800.0, 1800.0)
+			)
+			return station.global_position + offset
+	return Vector3(
+		rng.randf_range(-WORLD_LIMIT.x * 0.72, WORLD_LIMIT.x * 0.72),
+		rng.randf_range(-WORLD_LIMIT.y * 0.38, WORLD_LIMIT.y * 0.38),
+		rng.randf_range(-WORLD_LIMIT.z * 0.72, WORLD_LIMIT.z * 0.72)
+	)
+
+
+func add_traffic_nav_lights(ship: Node3D, traffic_class: String, accent_color: Color) -> void:
+	var span := 11.0
+	var aft := 6.0
+	match traffic_class:
+		"heavy_hauler":
+			span = 18.0
+			aft = 11.0
+		"corvette":
+			span = 15.0
+			aft = 9.0
+		"courier":
+			span = 9.0
+			aft = 5.0
+		"salvage_tug":
+			span = 13.0
+			aft = 8.0
+	for light_data in [
+		{"name": "PortLight", "position": Vector3(-span, 1.2, 0), "color": Color(1.0, 0.22, 0.22)},
+		{"name": "StarboardLight", "position": Vector3(span, 1.2, 0), "color": Color(0.22, 1.0, 0.34)},
+		{"name": "WakeLight", "position": Vector3(0, 0.6, aft), "color": accent_color.lightened(0.08)}
+	]:
+		var light := OmniLight3D.new()
+		light.name = str(light_data["name"])
+		light.position = light_data["position"]
+		light.light_color = light_data["color"]
+		light.light_energy = 0.55
+		light.omni_range = 34.0
+		light.omni_attenuation = 1.6
+		light.shadow_enabled = false
+		ship.add_child(light)
+
+
+func format_traffic_class_name(traffic_class: String) -> String:
+	match traffic_class:
+		"police_interceptor":
+			return "Police Interceptor"
+		"heavy_hauler":
+			return "Heavy Hauler"
+		"corvette":
+			return "Escort Corvette"
+		"courier":
+			return "Express Courier"
+		"salvage_tug":
+			return "Salvage Tug"
+		_:
+			return "Traffic"
 
 
 func simulate_planets(delta: float) -> void:
@@ -2430,10 +2583,10 @@ func update_edge_pass_theme() -> void:
 		_:
 			tint = Color(0.84, 0.92, 1.0)
 			halo_radius = 1.95
-	var darken := 0.06 if shaded_mode else 0.02
-	var mode_threshold := 0.12 + edge_strength_scale * 0.28
-	var mode_strength := 0.7 + edge_threshold * (1.0 if shaded_mode else wire_shader_scale * 0.9)
-	var mode_glow := 0.28 + edge_glow_scale * (1.1 if shaded_mode else 0.8 + wire_shader_scale * 0.85)
+	var darken := 0.06 if shaded_mode else 0.08
+	var mode_threshold := 0.16 + edge_strength_scale * (0.22 if shaded_mode else 0.12)
+	var mode_strength := 0.74 + edge_threshold * (0.9 if shaded_mode else 0.42 + wire_shader_scale * 0.22)
+	var mode_glow := 0.14 + edge_glow_scale * (0.95 if shaded_mode else 0.32 + wire_shader_scale * 0.18)
 	edge_material.set_shader_parameter("effect_mode", shader_mode_index)
 	edge_material.set_shader_parameter("edge_tint", Vector3(tint.r, tint.g, tint.b))
 	edge_material.set_shader_parameter("threshold", mode_threshold)
@@ -2460,7 +2613,7 @@ func update_blur_pass_theme() -> void:
 			tint = Color(0.04, 0.14, 0.32, 0.1)
 		_:
 			tint = Color(0.08, 0.12, 0.2, 0.08)
-	blur_material.set_shader_parameter("fog_density", blur_strength_scale * 0.35)
+	blur_material.set_shader_parameter("fog_density", blur_strength_scale * 0.18)
 	blur_material.set_shader_parameter("tint", tint)
 
 
@@ -2538,18 +2691,18 @@ func build_style_material(role: String, base_color: Color, render_variant: Strin
 	else:
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		material.emission_enabled = true
-		var line_boost := 1.35
+		var line_boost := 1.06
 		match visual_preset_index:
 			1:
-				line_boost = 1.85
+				line_boost = 1.22
 			2:
-				line_boost = 1.55
+				line_boost = 1.14
 			3:
-				line_boost = 2.0
+				line_boost = 1.26
 			4:
-				line_boost = 1.82
+				line_boost = 1.18
 			_:
-				line_boost = 1.42
+				line_boost = 1.08
 		material.emission = color * line_boost
 	if color.a < 0.99 and not is_shaded_solid:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -2662,6 +2815,13 @@ func apply_hud_style() -> void:
 			alert_color = Color(1.0, 0.5, 0.45)
 	apply_panel_styles(hud_color, accent_color, alert_color)
 	title_label.modulate = accent_color
+	cinematic_top_bar.color = Color(accent_color.r, accent_color.g, accent_color.b, 0.22)
+	cinematic_bottom_bar.color = Color(accent_color.r, accent_color.g, accent_color.b, 0.22)
+	top_frame.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
+	attitude_frame.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
+	left_frame.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
+	right_frame.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
+	message_frame.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.98)
 	dock_label.modulate = hud_color
 	cargo_label.modulate = hud_color
 	objective_label.modulate = accent_color
@@ -2682,12 +2842,18 @@ func apply_hud_style() -> void:
 	shield_bar.modulate = hud_color
 	reticle.modulate = accent_color
 	cockpit_mode_label.modulate = accent_color
+	cockpit_overlay.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
+	pause_card.modulate = Color(alert_color.r, alert_color.g, alert_color.b, 0.98)
 	pause_label.modulate = accent_color
+	start_card.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
 	start_label.modulate = accent_color
 	start_sub_label.modulate = hud_color
 	start_status_label.modulate = hud_color
 	start_hint_label.modulate = accent_color
+	start_progress_bar.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.98)
 	settings_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.95)
+	controls_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.96)
+	shader_panel.modulate = Color(hud_color.r, hud_color.g, hud_color.b, 0.96)
 	settings_title.modulate = accent_color
 	controls_title.modulate = accent_color
 	controls_keyboard_label.modulate = accent_color
@@ -2716,6 +2882,7 @@ func apply_hud_style() -> void:
 	settings_hint.modulate = accent_color
 	settings_hotkeys.modulate = hud_color
 	apply_button_styles(hud_color, accent_color, alert_color)
+	apply_slider_theme(hud_color, accent_color)
 	start_progress_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.04, 0.06, 0.09, 0.84), accent_color, 10))
 	start_progress_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.08, 0.11, 0.16, 0.96), hud_color.darkened(0.55)))
 	start_progress_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(hud_color.r * 0.78, hud_color.g * 0.96, 1.0, 0.98), accent_color))
@@ -2820,6 +2987,21 @@ func apply_touch_control_styles(hud_color: Color, accent_color: Color, alert_col
 		touch_fire_button.add_theme_stylebox_override("hover", make_button_stylebox(Color(0.18, 0.09, 0.08, 0.98), alert_color.lightened(0.08)))
 		touch_fire_button.add_theme_stylebox_override("pressed", make_button_stylebox(Color(0.24, 0.11, 0.09, 0.98), alert_color))
 		touch_fire_button.add_theme_color_override("font_color", alert_color)
+
+
+func apply_slider_theme(hud_color: Color, accent_color: Color) -> void:
+	for slider in [
+		music_slider,
+		sfx_slider,
+		edge_threshold_slider,
+		edge_strength_slider,
+		edge_glow_slider,
+		blur_amount_slider,
+		shader_aux_slider
+	]:
+		if slider == null:
+			continue
+		slider.modulate = Color(accent_color.r, accent_color.g, accent_color.b, 0.96)
 
 
 func make_panel_stylebox(background: Color, border: Color, radius: int) -> StyleBoxFlat:
@@ -5550,6 +5732,97 @@ func build_enemy_solid_mesh() -> ArrayMesh:
 		append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(3.7 * side, 0.0, 1.6)), Vector3(3.6, 0.42, 5.8), color.darkened(0.04))
 		append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(1.85 * side, -0.32, 4.8)), Vector3(0.9, 0.9, 2.8), color.lightened(0.02))
 	append_ship_nose_to_surface(st, 2.2, 0.55, -4.8, -8.1, color)
+	st.generate_normals()
+	return st.commit()
+
+
+func build_traffic_ship_mesh(traffic_class: String) -> ArrayMesh:
+	match traffic_class:
+		"police_interceptor":
+			return build_line_mesh(PackedVector3Array([
+				Vector3(0, 0, -11), Vector3(6, 0, 4),
+				Vector3(6, 0, 4), Vector3(0, 2.5, 8),
+				Vector3(0, 2.5, 8), Vector3(-6, 0, 4),
+				Vector3(-6, 0, 4), Vector3(0, 0, -11),
+				Vector3(-9, 0, 0), Vector3(-3, 0, 3),
+				Vector3(9, 0, 0), Vector3(3, 0, 3),
+				Vector3(0, -1.8, 5), Vector3(0, 2.5, 8)
+			]))
+		"heavy_hauler":
+			return build_line_mesh(PackedVector3Array([
+				Vector3(-10, -2, -18), Vector3(10, -2, -18),
+				Vector3(10, -2, -18), Vector3(12, 3, 18),
+				Vector3(12, 3, 18), Vector3(-12, 3, 18),
+				Vector3(-12, 3, 18), Vector3(-10, -2, -18),
+				Vector3(-8, 5, -6), Vector3(8, 5, -6),
+				Vector3(8, 5, -6), Vector3(6, 8, 8),
+				Vector3(6, 8, 8), Vector3(-6, 8, 8),
+				Vector3(-6, 8, 8), Vector3(-8, 5, -6),
+				Vector3(-16, 0, -2), Vector3(-12, 0, -2),
+				Vector3(16, 0, -2), Vector3(12, 0, -2)
+			]))
+		"corvette":
+			return build_destroyer_mesh(28.0)
+		"courier":
+			return build_line_mesh(PackedVector3Array([
+				Vector3(0, 0, -13), Vector3(4, 0, 2),
+				Vector3(4, 0, 2), Vector3(2.5, 0, 10),
+				Vector3(2.5, 0, 10), Vector3(-2.5, 0, 10),
+				Vector3(-2.5, 0, 10), Vector3(-4, 0, 2),
+				Vector3(-4, 0, 2), Vector3(0, 0, -13),
+				Vector3(-7, 0, 3), Vector3(7, 0, 3),
+				Vector3(0, -1.4, 8), Vector3(0, 2.0, 7)
+			]))
+		"salvage_tug":
+			return build_line_mesh(PackedVector3Array([
+				Vector3(-5, -2, -10), Vector3(5, -2, -10),
+				Vector3(5, -2, -10), Vector3(7, 2, 8),
+				Vector3(7, 2, 8), Vector3(-7, 2, 8),
+				Vector3(-7, 2, 8), Vector3(-5, -2, -10),
+				Vector3(-2, 4, -2), Vector3(2, 4, -2),
+				Vector3(0, 4, -2), Vector3(0, 8, 3),
+				Vector3(-10, 0, 6), Vector3(10, 0, 6)
+			]))
+		_:
+			return build_enemy_ship_mesh()
+
+
+func build_traffic_ship_solid_mesh(traffic_class: String) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	match traffic_class:
+		"police_interceptor":
+			var interceptor_color := Color(0.68, 0.82, 0.96)
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3.ZERO), Vector3(7.2, 1.8, 15.0), interceptor_color.darkened(0.08))
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(0, 0.7, -2.0)), Vector3(3.0, 1.4, 5.6), interceptor_color.lightened(0.06))
+			for side in [-1.0, 1.0]:
+				append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(4.2 * side, 0.0, 1.0)), Vector3(3.8, 0.3, 9.2), interceptor_color.darkened(0.02))
+			append_ship_nose_to_surface(st, 2.4, 0.65, -6.2, -11.2, interceptor_color)
+		"heavy_hauler":
+			var hauler_color := Color(0.84, 0.78, 0.64)
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3.ZERO), Vector3(12.0, 5.2, 33.0), hauler_color.darkened(0.1))
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(0, 4.4, -4.0)), Vector3(7.4, 3.0, 12.0), hauler_color.lightened(0.04))
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(0, -1.8, 5.0)), Vector3(9.0, 2.0, 16.0), hauler_color.darkened(0.16))
+			for side in [-1.0, 1.0]:
+				append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(9.4 * side, 0.4, -1.5)), Vector3(3.0, 0.8, 14.0), hauler_color.darkened(0.06))
+			append_ship_nose_to_surface(st, 4.0, 1.2, -11.0, -18.0, hauler_color)
+		"corvette":
+			return build_destroyer_solid_mesh(28.0)
+		"courier":
+			var courier_color := Color(0.66, 0.9, 0.82)
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3.ZERO), Vector3(4.6, 1.5, 18.0), courier_color.darkened(0.06))
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(0, 0.42, 2.8)), Vector3(2.1, 1.1, 7.4), courier_color.lightened(0.05))
+			for side in [-1.0, 1.0]:
+				append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(2.6 * side, -0.1, 1.4)), Vector3(2.8, 0.2, 9.4), courier_color.darkened(0.02))
+			append_ship_nose_to_surface(st, 1.5, 0.44, -7.6, -13.2, courier_color)
+		"salvage_tug":
+			var tug_color := Color(0.72, 0.8, 0.86)
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(0, 0.2, 0)), Vector3(8.0, 3.4, 18.0), tug_color.darkened(0.08))
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(0, 3.0, -1.0)), Vector3(3.6, 3.2, 5.2), tug_color.lightened(0.02))
+			append_box_to_surface(st, Transform3D(Basis.IDENTITY, Vector3(0, 0.0, 8.6)), Vector3(13.0, 0.5, 1.1), tug_color.darkened(0.16))
+			append_ship_nose_to_surface(st, 2.2, 0.7, -6.0, -10.4, tug_color)
+		_:
+			return build_enemy_solid_mesh()
 	st.generate_normals()
 	return st.commit()
 
