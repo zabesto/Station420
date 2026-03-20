@@ -72,14 +72,34 @@ Important details:
 
 - `build/web` is the normal local preview output and still uses `index.wasm`.
 - `build/cloudflare` is the deployment bundle and uses `index.wasm.gz`.
-- The Cloudflare bundle depends on `DecompressionStream` in the browser to inflate the gzipped wasm before `WebAssembly.instantiateStreaming`.
+- The Cloudflare loader reads the wasm response into bytes, detects gzip by signature, inflates it with `DecompressionStream`, and then calls `WebAssembly.instantiate(...)`.
 - `_headers` is intentionally removed from `build/cloudflare`; the deploy no longer depends on custom content-encoding headers or a Worker shim.
+- `git push` does not deploy this site. Cloudflare only updates when `npx wrangler deploy` is run.
 
 Known validation notes:
 
 - `npx wrangler deploy` successfully published the static bundle on March 19, 2026.
 - In this Codex shell, direct requests to `/index.wasm.gz` were intermittently blocked by DNS resolution issues even after a successful deploy, so browser validation should still be done from a normal machine if the site appears stuck on load.
 - Godot may print a sandbox warning about saving editor settings under `~/Library/Application Support/Godot/editor_settings-4.6.tres` during headless export. That warning did not block export.
+
+## Phone Controls
+
+- Tap the start screen to launch.
+- Left touch pad: thrust and strafe
+- Right touch pad: steer and camera look
+- `FIRE`: lasers
+- `BOOST`: acceleration boost
+- `AP`: autopilot
+- `CAM`: cycle camera mode
+- `DOCK`: dock when in range
+- `TGT`: cycle autopilot target
+- `UP` / `DN`: vertical thrust
+
+Phone web builds also use:
+
+- `viewport-fit=cover`
+- safe-area padding for notches and browser chrome
+- larger HUD, settings, shader, and controls panel sizing in portrait mode
 
 ## Main Controls
 
@@ -135,6 +155,27 @@ The panel exposes:
 - `Aux Mix`
 
 Visual presets still cycle with keyboard `1-4` or controller `LB / RB`.
+
+## Release Flow
+
+Recommended release pass:
+
+```bash
+cd /Users/djcarter/Documents/code/godot/Station420
+godot --headless --path /Users/djcarter/Documents/code/godot/Station420 --quit
+./export-web.command
+git status
+git push origin main
+npx wrangler deploy
+```
+
+After deploy, verify from a real browser:
+
+- desktop load
+- iPhone portrait load
+- tap-to-start
+- touch controls
+- audio start after interaction
 
 ## Project Layout
 

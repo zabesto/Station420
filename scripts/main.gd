@@ -20,6 +20,7 @@ const CHASE_BIAS_SPEED := 0.42
 const CHASE_PITCH_TARGET := -0.14
 const PHONE_LAYOUT_BREAKPOINT := 760.0
 const PORTRAIT_LAYOUT_BREAKPOINT := 1.05
+const SHOW_DEBUG_SAVE_BUTTON := false
 const CINEMATIC_IDLE_DELAY := 60.0
 const CINEMATIC_BLEND_IN_SPEED := 0.42
 const CINEMATIC_BLEND_OUT_SPEED := 1.8
@@ -392,6 +393,7 @@ func _ready() -> void:
 	settings_panel.visible = false
 	controls_panel.visible = false
 	shader_panel.visible = false
+	debug_save_defaults_button.visible = SHOW_DEBUG_SAVE_BUTTON
 	dock_label.visible = false
 	cargo_label.visible = false
 	objective_label.visible = false
@@ -714,7 +716,7 @@ func save_current_defaults() -> void:
 		return
 	file.store_string(JSON.stringify(payload, "\t"))
 	set_alert("Defaults saved", 0.45)
-	update_status("Debug defaults snapshot saved.\nThis button is temporary and can be removed after you settle on the baseline.")
+	update_status("Current visual defaults saved to disk.")
 
 
 func _on_debug_save_defaults_pressed() -> void:
@@ -4712,7 +4714,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	var is_phone_portrait: bool = portrait and viewport_size.x <= 900.0
 	var phone_touch_ui := OS.has_feature("web") and (viewport_size.x <= 980.0 or compact)
 	touch_phone_layout_active = phone_touch_ui
-	debug_save_defaults_button.visible = not phone_touch_ui
+	debug_save_defaults_button.visible = SHOW_DEBUG_SAVE_BUTTON and not phone_touch_ui
 	fullscreen_button.visible = not (phone_touch_ui and OS.has_feature("web"))
 	var margin := 12.0 if compact else 22.0
 	var side_width: float = min(320.0 if is_phone_portrait else 256.0, max(196.0 if is_phone_portrait else 172.0, viewport_size.x * (0.7 if is_phone_portrait else (0.46 if compact else 0.22))))
