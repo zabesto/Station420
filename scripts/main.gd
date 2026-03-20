@@ -143,6 +143,7 @@ const STATION_LAYOUT := [
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var blur_pass: ColorRect = $CanvasLayer/BlurPass
 @onready var edge_pass: ColorRect = $CanvasLayer/EdgePass
+@onready var hud: Control = $CanvasLayer/HUD
 @onready var title_label: Label = $CanvasLayer/HUD/TitleLabel
 @onready var debug_save_defaults_button: Button = $CanvasLayer/HUD/DebugSaveDefaultsButton
 @onready var help_button: Button = $CanvasLayer/HUD/HelpButton
@@ -357,12 +358,30 @@ var enemy_target_lead_base_mesh: Mesh
 var attitude_ring: MeshInstance3D
 var attitude_crosshair: MeshInstance3D
 var attitude_sun_marker: MeshInstance3D
+var touch_controls_root: Control
+var touch_move_pad: Control
+var touch_move_knob: ColorRect
+var touch_look_pad: Control
+var touch_look_knob: ColorRect
+var touch_fire_button: Button
+var touch_boost_button: Button
+var touch_ap_button: Button
+var touch_camera_button: Button
+var touch_dock_button: Button
+var touch_target_button: Button
+var touch_up_button: Button
+var touch_down_button: Button
+var touch_move_pointer := -1
+var touch_look_pointer := -1
+var touch_move_axis := Vector2.ZERO
+var touch_look_axis := Vector2.ZERO
+var touch_vertical_axis := 0.0
+var touch_fire_held := false
+var touch_phone_layout_active := false
 
 
 func _ready() -> void:
-	if DisplayServer.get_name() != "headless":
-		get_window().min_size = Vector2i(1280, 720)
-		get_window().mode = Window.MODE_MAXIMIZED
+	configure_window_for_platform()
 	player.call("set_world_limit", WORLD_LIMIT)
 	alert_label.text = ""
 	hit_label.text = ""
@@ -408,8 +427,11 @@ func _ready() -> void:
 	player.call("set_physics_mode", flight_physics_mode)
 	apply_visual_preset()
 	apply_shader_runtime_settings()
+	if DisplayServer.get_name() != "headless":
+		get_window().size_changed.connect(_on_window_size_changed)
 	player.call("set_camera_view", camera_mode)
 	connect_settings_controls()
+	create_touch_controls()
 	update_responsive_hud_layout(true)
 	update_window_controls()
 
@@ -420,6 +442,39 @@ func _ready() -> void:
 	update_settings_label()
 	update_status("Press Enter to launch.\nMouse steers. Use Space to fire and Esc to pause once you are underway.")
 	update_mouse_mode()
+
+
+func configure_window_for_platform() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var window := get_window()
+	if window == null:
+		return
+	if OS.has_feature("web"):
+		sync_mobile_web_content_scale()
+		return
+	window.min_size = Vector2i(1280, 720)
+	window.mode = Window.MODE_MAXIMIZED
+
+
+func sync_mobile_web_content_scale() -> void:
+	if DisplayServer.get_name() == "headless" or not OS.has_feature("web"):
+		return
+	var window := get_window()
+	if window == null:
+		return
+	var window_size: Vector2i = window.size
+	if window_size.x <= 0 or window_size.y <= 0:
+		return
+	var is_phone_like: bool = window_size.x <= 900 or float(window_size.y) / max(float(window_size.x), 1.0) >= PORTRAIT_LAYOUT_BREAKPOINT
+	var target_size: Vector2i = window_size if is_phone_like else Vector2i(1600, 900)
+	if window.content_scale_size != target_size:
+		window.content_scale_size = target_size
+
+
+func _on_window_size_changed() -> void:
+	sync_mobile_web_content_scale()
+	update_responsive_hud_layout(true)
 
 
 func _exit_tree() -> void:
@@ -467,6 +522,93 @@ func connect_settings_controls() -> void:
 	edge_glow_slider.value = edge_glow_scale * 100.0
 	blur_amount_slider.value = wire_shader_scale * 100.0
 	shader_aux_slider.value = blur_strength_scale * 100.0
+
+
+func create_touch_controls() -> void:
+	if DisplayServer.get_name() == "headless" or hud == null or touch_controls_root != null:
+		return
+	touch_controls_root = Control.new()
+	touch_controls_root.name = "TouchControls"
+	touch_controls_root.anchor_right = 1.0
+	touch_controls_root.anchor_bottom = 1.0
+	touch_controls_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	touch_controls_root.visible = false
+	hud.add_child(touch_controls_root)
+	hud.move_child(touch_controls_root, hud.get_child_count() - 1)
+
+	touch_move_pad = make_touch_pad("THRUST")
+	touch_move_knob = touch_move_pad.get_node("Knob") as ColorRect
+	touch_controls_root.add_child(touch_move_pad)
+
+	touch_look_pad = make_touch_pad("LOOK")
+	touch_look_knob = touch_look_pad.get_node("Knob") as ColorRect
+	touch_controls_root.add_child(touch_look_pad)
+
+	touch_fire_button = make_touch_button("FIRE")
+	touch_boost_button = make_touch_button("BOOST")
+	touch_ap_button = make_touch_button("AP")
+	touch_camera_button = make_touch_button("CAM")
+	touch_dock_button = make_touch_button("DOCK")
+	touch_target_button = make_touch_button("TGT")
+	touch_up_button = make_touch_button("UP")
+	touch_down_button = make_touch_button("DN")
+	for button in [
+		touch_fire_button,
+		touch_boost_button,
+		touch_ap_button,
+		touch_camera_button,
+		touch_dock_button,
+		touch_target_button,
+		touch_up_button,
+		touch_down_button
+	]:
+		touch_controls_root.add_child(button)
+
+	touch_fire_button.button_down.connect(_on_touch_fire_down)
+	touch_fire_button.button_up.connect(_on_touch_fire_up)
+	touch_boost_button.button_down.connect(_on_touch_boost_down)
+	touch_boost_button.button_up.connect(_on_touch_boost_up)
+	touch_ap_button.pressed.connect(_on_touch_ap_pressed)
+	touch_camera_button.pressed.connect(_on_touch_camera_pressed)
+	touch_dock_button.pressed.connect(_on_touch_dock_pressed)
+	touch_target_button.pressed.connect(_on_touch_target_pressed)
+	touch_up_button.button_down.connect(_on_touch_up_down)
+	touch_up_button.button_up.connect(_on_touch_up_up)
+	touch_down_button.button_down.connect(_on_touch_down_down)
+	touch_down_button.button_up.connect(_on_touch_down_up)
+	update_touch_controls_visibility()
+
+
+func make_touch_pad(label_text: String) -> Panel:
+	var pad := Panel.new()
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var label := Label.new()
+	label.name = "Label"
+	label.text = label_text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.anchor_left = 0.0
+	label.anchor_top = 0.0
+	label.anchor_right = 1.0
+	label.anchor_bottom = 0.0
+	label.offset_top = 10.0
+	label.offset_bottom = 30.0
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.add_child(label)
+	var knob := ColorRect.new()
+	knob.name = "Knob"
+	knob.color = Color(0.9, 0.95, 1.0, 0.18)
+	knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.add_child(knob)
+	return pad
+
+
+func make_touch_button(text: String) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	return button
 
 
 func populate_shader_mode_option() -> void:
@@ -633,10 +775,14 @@ func _process(delta: float) -> void:
 	update_debug_overlay()
 	update_overlay_blur()
 	update_attitude_indicator()
+	update_touch_controls_visibility()
+	update_touch_player_input()
 	camera_manual_input_timer = max(camera_manual_input_timer - delta, 0.0)
 	update_idle_cinematic(delta)
 	if paused:
 		return
+	if touch_fire_held:
+		try_fire_player_projectile()
 
 	update_controller_camera(delta)
 	var camera_smooth: float = clamp(delta * 9.5, 0.0, 1.0)
@@ -712,6 +858,7 @@ func update_cinematic_overlay() -> void:
 		pause_card,
 		pause_label,
 		hit_label,
+		touch_controls_root,
 		settings_panel,
 		controls_panel,
 		shader_panel
@@ -743,6 +890,38 @@ func _physics_process(delta: float) -> void:
 	update_projectiles(delta)
 	update_effects(delta)
 	maybe_spawn_enemies(delta)
+
+
+func _input(event: InputEvent) -> void:
+	if touch_phone_layout_active and touch_controls_root != null and touch_controls_root.visible:
+		if handle_touch_controls_input(event):
+			get_viewport().set_input_as_handled()
+			return
+	if event is InputEventScreenTouch and event.pressed:
+		note_player_activity()
+		if shader_panel_visible or controls_visible:
+			return
+		if start_screen_active:
+			start_run()
+			get_viewport().set_input_as_handled()
+			return
+		if game_over_state:
+			restart_game()
+			get_viewport().set_input_as_handled()
+			return
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			return
+		if shader_panel_visible or controls_visible:
+			return
+		if start_screen_active:
+			start_run()
+			get_viewport().set_input_as_handled()
+			return
+		if game_over_state:
+			restart_game()
+			get_viewport().set_input_as_handled()
+			return
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1901,6 +2080,240 @@ func update_overlay_blur() -> void:
 	blur_pass.visible = blur_shader_enabled and (start_screen_active or paused or settings_visible or controls_visible or shader_panel_visible)
 
 
+func handle_touch_controls_input(event: InputEvent) -> bool:
+	if event is InputEventScreenTouch:
+		var touch_event := event as InputEventScreenTouch
+		if touch_event.pressed:
+			return begin_touch_pad_tracking(touch_event.index, touch_event.position)
+		return end_touch_pad_tracking(touch_event.index)
+	if event is InputEventScreenDrag:
+		var drag_event := event as InputEventScreenDrag
+		return update_touch_pad_tracking(drag_event.index, drag_event.position)
+	return false
+
+
+func begin_touch_pad_tracking(pointer_index: int, screen_position: Vector2) -> bool:
+	if touch_move_pad != null and touch_move_pointer == -1 and touch_move_pad.get_global_rect().has_point(screen_position):
+		touch_move_pointer = pointer_index
+		update_touch_pad_axis(touch_move_pad, touch_move_knob, screen_position, true)
+		note_player_activity()
+		return true
+	if touch_look_pad != null and touch_look_pointer == -1 and touch_look_pad.get_global_rect().has_point(screen_position):
+		touch_look_pointer = pointer_index
+		update_touch_pad_axis(touch_look_pad, touch_look_knob, screen_position, false)
+		note_player_activity()
+		return true
+	return false
+
+
+func update_touch_pad_tracking(pointer_index: int, screen_position: Vector2) -> bool:
+	var handled := false
+	if pointer_index == touch_move_pointer and touch_move_pad != null:
+		update_touch_pad_axis(touch_move_pad, touch_move_knob, screen_position, true)
+		handled = true
+	if pointer_index == touch_look_pointer and touch_look_pad != null:
+		update_touch_pad_axis(touch_look_pad, touch_look_knob, screen_position, false)
+		handled = true
+	if handled:
+		note_player_activity()
+	return handled
+
+
+func end_touch_pad_tracking(pointer_index: int) -> bool:
+	var handled := false
+	if pointer_index == touch_move_pointer:
+		touch_move_pointer = -1
+		touch_move_axis = Vector2.ZERO
+		reset_touch_pad_knob(touch_move_pad, touch_move_knob)
+		handled = true
+	if pointer_index == touch_look_pointer:
+		touch_look_pointer = -1
+		touch_look_axis = Vector2.ZERO
+		reset_touch_pad_knob(touch_look_pad, touch_look_knob)
+		handled = true
+	return handled
+
+
+func update_touch_pad_axis(pad: Control, knob: ColorRect, screen_position: Vector2, move_pad: bool) -> void:
+	if pad == null or knob == null:
+		return
+	var rect := pad.get_global_rect()
+	var center := rect.position + rect.size * 0.5
+	var radius: float = min(rect.size.x, rect.size.y) * 0.34
+	if radius <= 0.0:
+		return
+	var local_axis: Vector2 = (screen_position - center) / radius
+	local_axis.x = clamp(local_axis.x, -1.0, 1.0)
+	local_axis.y = clamp(local_axis.y, -1.0, 1.0)
+	if local_axis.length() > 1.0:
+		local_axis = local_axis.normalized()
+	if move_pad:
+		touch_move_axis = Vector2(local_axis.x, local_axis.y)
+	else:
+		touch_look_axis = Vector2(local_axis.x, local_axis.y)
+	update_touch_pad_knob(pad, knob, local_axis)
+
+
+func update_touch_pad_knob(pad: Control, knob: ColorRect, axis: Vector2) -> void:
+	if pad == null or knob == null:
+		return
+	var center := pad.size * 0.5
+	var travel: float = min(pad.size.x, pad.size.y) * 0.28
+	knob.position = center + axis * travel - knob.size * 0.5
+
+
+func reset_touch_pad_knob(pad: Control, knob: ColorRect) -> void:
+	update_touch_pad_knob(pad, knob, Vector2.ZERO)
+
+
+func update_touch_controls_visibility() -> void:
+	if touch_controls_root == null:
+		return
+	var show_controls: bool = touch_phone_layout_active and not paused and not start_screen_active and not settings_visible and not controls_visible and not shader_panel_visible and not game_over_state
+	touch_controls_root.visible = show_controls
+	if not show_controls:
+		reset_touch_controls_state()
+
+
+func reset_touch_controls_state() -> void:
+	touch_move_pointer = -1
+	touch_look_pointer = -1
+	touch_move_axis = Vector2.ZERO
+	touch_look_axis = Vector2.ZERO
+	touch_vertical_axis = 0.0
+	touch_fire_held = false
+	if player != null:
+		player.call("set_touch_move_input", Vector3.ZERO)
+		player.call("set_touch_look_input", Vector2.ZERO)
+		player.call("set_touch_boost", false)
+	if touch_move_pad != null:
+		reset_touch_pad_knob(touch_move_pad, touch_move_knob)
+	if touch_look_pad != null:
+		reset_touch_pad_knob(touch_look_pad, touch_look_knob)
+
+
+func update_touch_player_input() -> void:
+	if player == null:
+		return
+	if not touch_phone_layout_active or touch_controls_root == null or not touch_controls_root.visible:
+		player.call("set_touch_move_input", Vector3.ZERO)
+		player.call("set_touch_look_input", Vector2.ZERO)
+		player.call("set_touch_boost", false)
+		return
+	var move_input: Vector3 = Vector3(touch_move_axis.x, touch_vertical_axis, touch_move_axis.y)
+	player.call("set_touch_move_input", move_input)
+	player.call("set_touch_look_input", touch_look_axis)
+
+
+func layout_touch_controls(viewport_size: Vector2, margin: float, is_phone_portrait: bool, compact: bool) -> void:
+	if touch_controls_root == null:
+		return
+	update_touch_controls_visibility()
+	if not touch_phone_layout_active:
+		return
+
+	var pad_size: float = min(228.0 if is_phone_portrait else 186.0, max(164.0, viewport_size.x * (0.39 if is_phone_portrait else 0.24)))
+	var pad_bottom: float = 108.0 if is_phone_portrait else 36.0
+	var pad_left: float = margin
+	var pad_right: float = viewport_size.x - margin - pad_size
+	touch_move_pad.position = Vector2(pad_left, viewport_size.y - pad_bottom - pad_size)
+	touch_move_pad.size = Vector2.ONE * pad_size
+	touch_look_pad.position = Vector2(pad_right, viewport_size.y - pad_bottom - pad_size)
+	touch_look_pad.size = Vector2.ONE * pad_size
+	var knob_size: Vector2 = Vector2.ONE * (pad_size * 0.33)
+	touch_move_knob.size = knob_size
+	touch_look_knob.size = knob_size
+	reset_touch_pad_knob(touch_move_pad, touch_move_knob)
+	reset_touch_pad_knob(touch_look_pad, touch_look_knob)
+
+	var button_size: Vector2 = Vector2(
+		88.0 if is_phone_portrait else 74.0,
+		72.0 if is_phone_portrait else 60.0
+	)
+	var button_gap: float = 10.0 if is_phone_portrait else 8.0
+	var cluster_width: float = button_size.x * 2.0 + button_gap
+	var cluster_left: float = clamp((viewport_size.x - cluster_width) * 0.5, touch_move_pad.position.x + pad_size + 10.0, touch_look_pad.position.x - cluster_width - 10.0)
+	var cluster_bottom: float = viewport_size.y - (102.0 if is_phone_portrait else 32.0)
+	var top_row_y: float = cluster_bottom - button_size.y * 4.0 - button_gap * 3.0
+	position_touch_button(touch_boost_button, cluster_left, top_row_y, button_size)
+	position_touch_button(touch_fire_button, cluster_left + button_size.x + button_gap, top_row_y, button_size)
+	position_touch_button(touch_up_button, cluster_left, top_row_y + button_size.y + button_gap, button_size)
+	position_touch_button(touch_down_button, cluster_left + button_size.x + button_gap, top_row_y + button_size.y + button_gap, button_size)
+	position_touch_button(touch_ap_button, cluster_left, top_row_y + (button_size.y + button_gap) * 2.0, button_size)
+	position_touch_button(touch_camera_button, cluster_left + button_size.x + button_gap, top_row_y + (button_size.y + button_gap) * 2.0, button_size)
+	position_touch_button(touch_dock_button, cluster_left, top_row_y + (button_size.y + button_gap) * 3.0, button_size)
+	position_touch_button(touch_target_button, cluster_left + button_size.x + button_gap, top_row_y + (button_size.y + button_gap) * 3.0, button_size)
+
+
+func position_touch_button(button: Button, x: float, y: float, size: Vector2) -> void:
+	if button == null:
+		return
+	button.position = Vector2(x, y)
+	button.size = size
+	button.custom_minimum_size = size
+
+
+func _on_touch_fire_down() -> void:
+	touch_fire_held = true
+	note_player_activity()
+
+
+func _on_touch_fire_up() -> void:
+	touch_fire_held = false
+
+
+func _on_touch_boost_down() -> void:
+	player.call("set_touch_boost", true)
+	note_player_activity()
+
+
+func _on_touch_boost_up() -> void:
+	player.call("set_touch_boost", false)
+
+
+func _on_touch_ap_pressed() -> void:
+	note_player_activity()
+	toggle_autopilot()
+
+
+func _on_touch_camera_pressed() -> void:
+	note_player_activity()
+	toggle_camera_mode()
+
+
+func _on_touch_dock_pressed() -> void:
+	note_player_activity()
+	if nearby_station != null:
+		dock_at_station(nearby_station)
+	else:
+		update_status("No station in range.\nApproach a station halo, then tap DOCK to moor.")
+
+
+func _on_touch_target_pressed() -> void:
+	note_player_activity()
+	cycle_autopilot_target()
+
+
+func _on_touch_up_down() -> void:
+	touch_vertical_axis = 1.0
+	note_player_activity()
+
+
+func _on_touch_up_up() -> void:
+	if touch_vertical_axis > 0.0:
+		touch_vertical_axis = 0.0
+
+
+func _on_touch_down_down() -> void:
+	touch_vertical_axis = -1.0
+	note_player_activity()
+
+
+func _on_touch_down_up() -> void:
+	if touch_vertical_axis < 0.0:
+		touch_vertical_axis = 0.0
+
+
 func get_preset_name(index: int) -> String:
 	match index:
 		1:
@@ -2288,6 +2701,7 @@ func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Colo
 	hull_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(alert_color.r, alert_color.g * 0.85, alert_color.b * 0.85, 0.98), accent_color))
 	shield_bar.add_theme_stylebox_override("background", make_bar_stylebox(Color(0.08, 0.11, 0.16, 0.92), hud_color.darkened(0.55)))
 	shield_bar.add_theme_stylebox_override("fill", make_bar_stylebox(Color(hud_color.r * 0.72, hud_color.g * 0.9, 1.0, 0.98), accent_color))
+	apply_touch_control_styles(hud_color, accent_color, alert_color)
 
 
 func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Color) -> void:
@@ -2331,6 +2745,45 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 	debug_save_defaults_button.add_theme_color_override("font_hover_color", Color.WHITE)
 	debug_save_defaults_button.add_theme_color_override("font_pressed_color", Color.WHITE)
 	debug_save_defaults_button.add_theme_font_size_override("font_size", 18)
+	for button in [
+		touch_fire_button,
+		touch_boost_button,
+		touch_ap_button,
+		touch_camera_button,
+		touch_dock_button,
+		touch_target_button,
+		touch_up_button,
+		touch_down_button
+	]:
+		if button == null:
+			continue
+		button.add_theme_stylebox_override("normal", primary_style)
+		button.add_theme_stylebox_override("hover", make_button_stylebox(Color(0.07, 0.09, 0.13, 0.96), accent_color.lightened(0.1)))
+		button.add_theme_stylebox_override("pressed", make_button_stylebox(Color(0.12, 0.15, 0.2, 0.98), accent_color))
+		button.add_theme_color_override("font_color", accent_color)
+		button.add_theme_color_override("font_hover_color", Color.WHITE)
+		button.add_theme_color_override("font_pressed_color", Color.WHITE)
+		button.add_theme_font_size_override("font_size", 22)
+
+
+func apply_touch_control_styles(hud_color: Color, accent_color: Color, alert_color: Color) -> void:
+	for pad in [touch_move_pad, touch_look_pad]:
+		if pad == null:
+			continue
+		pad.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.38), accent_color, 999))
+		var label := pad.get_node_or_null("Label") as Label
+		if label != null:
+			label.modulate = accent_color
+			label.add_theme_font_size_override("font_size", 18)
+	if touch_move_knob != null:
+		touch_move_knob.color = Color(accent_color.r, accent_color.g, accent_color.b, 0.28)
+	if touch_look_knob != null:
+		touch_look_knob.color = Color(hud_color.r, hud_color.g, hud_color.b, 0.24)
+	if touch_fire_button != null:
+		touch_fire_button.add_theme_stylebox_override("normal", make_button_stylebox(Color(0.14, 0.07, 0.06, 0.94), alert_color))
+		touch_fire_button.add_theme_stylebox_override("hover", make_button_stylebox(Color(0.18, 0.09, 0.08, 0.98), alert_color.lightened(0.08)))
+		touch_fire_button.add_theme_stylebox_override("pressed", make_button_stylebox(Color(0.24, 0.11, 0.09, 0.98), alert_color))
+		touch_fire_button.add_theme_color_override("font_color", alert_color)
 
 
 func make_panel_stylebox(background: Color, border: Color, radius: int) -> StyleBoxFlat:
@@ -2572,6 +3025,7 @@ func start_run() -> void:
 	title_label.text = "Wireframe System"
 	update_status("Launch confirmed.\nHostile drones are still buried in the debris fields. Use the opening to scout the system.")
 	update_mouse_mode()
+	update_touch_controls_visibility()
 
 
 func toggle_pause() -> void:
@@ -2588,6 +3042,7 @@ func toggle_pause() -> void:
 	else:
 		title_label.text = "Wireframe System"
 	update_mouse_mode()
+	update_touch_controls_visibility()
 
 
 func toggle_settings_panel() -> void:
@@ -2600,6 +3055,7 @@ func toggle_settings_panel() -> void:
 	settings_visible = not settings_visible
 	settings_panel.visible = settings_visible
 	update_mouse_mode()
+	update_touch_controls_visibility()
 
 
 func toggle_controls_panel() -> void:
@@ -2612,6 +3068,7 @@ func toggle_controls_panel() -> void:
 	controls_visible = not controls_visible
 	controls_panel.visible = controls_visible
 	update_mouse_mode()
+	update_touch_controls_visibility()
 
 
 func toggle_shader_panel() -> void:
@@ -2621,6 +3078,7 @@ func toggle_shader_panel() -> void:
 	shader_panel_visible = not shader_panel_visible
 	shader_panel.visible = shader_panel_visible
 	update_mouse_mode()
+	update_touch_controls_visibility()
 
 
 func update_boot_screen(delta: float) -> void:
@@ -2957,7 +3415,7 @@ func compute_autopilot_basis(forward: Vector3) -> Basis:
 func update_mouse_mode() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	if paused or start_screen_active or settings_visible or controls_visible:
+	if paused or start_screen_active or settings_visible or controls_visible or touch_phone_layout_active:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		return
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -4251,12 +4709,17 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	last_viewport_size = viewport_size
 	var portrait: bool = viewport_size.y / max(viewport_size.x, 1.0) >= PORTRAIT_LAYOUT_BREAKPOINT
 	var compact: bool = viewport_size.x <= PHONE_LAYOUT_BREAKPOINT or portrait
+	var is_phone_portrait: bool = portrait and viewport_size.x <= 900.0
+	var phone_touch_ui := OS.has_feature("web") and (viewport_size.x <= 980.0 or compact)
+	touch_phone_layout_active = phone_touch_ui
+	debug_save_defaults_button.visible = not phone_touch_ui
+	fullscreen_button.visible = not (phone_touch_ui and OS.has_feature("web"))
 	var margin := 12.0 if compact else 22.0
-	var side_width: float = min(256.0, max(172.0, viewport_size.x * (0.46 if compact else 0.22)))
-	var attitude_size: float = min(156.0 if compact else 176.0, max(108.0 if compact else 136.0, viewport_size.x * (0.18 if compact else 0.1)))
-	var side_height := 124.0 if portrait else (166.0 if compact else 214.0)
+	var side_width: float = min(320.0 if is_phone_portrait else 256.0, max(196.0 if is_phone_portrait else 172.0, viewport_size.x * (0.7 if is_phone_portrait else (0.46 if compact else 0.22))))
+	var attitude_size: float = min(188.0 if is_phone_portrait else (156.0 if compact else 176.0), max(132.0 if is_phone_portrait else (108.0 if compact else 136.0), viewport_size.x * (0.24 if is_phone_portrait else (0.18 if compact else 0.1))))
+	var side_height := 156.0 if is_phone_portrait else (124.0 if portrait else (166.0 if compact else 214.0))
 	var bottom_margin := 18.0 if portrait else (14.0 if compact else 22.0)
-	var top_height := 72.0 if compact else 92.0
+	var top_height := 84.0 if is_phone_portrait else (72.0 if compact else 92.0)
 	var top_width: float = min(viewport_size.x - margin * 2.0 - 112.0, 700.0 if compact else 720.0)
 	top_frame.offset_left = -top_width * 0.5
 	top_frame.offset_right = top_width * 0.5
@@ -4272,8 +4735,8 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	hit_value.offset_bottom = 66.0
 	alert_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hit_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	alert_value.add_theme_font_size_override("font_size", 11 if compact else 13)
-	hit_value.add_theme_font_size_override("font_size", 10 if compact else 12)
+	alert_value.add_theme_font_size_override("font_size", 13 if is_phone_portrait else (11 if compact else 13))
+	hit_value.add_theme_font_size_override("font_size", 12 if is_phone_portrait else (10 if compact else 12))
 	attitude_frame.offset_left = margin
 	attitude_frame.offset_top = margin + 52.0
 	attitude_frame.offset_right = margin + attitude_size
@@ -4314,22 +4777,18 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	message_value.offset_right = message_width - 18.0
 	message_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	debug_save_defaults_button.offset_left = -120.0
-	debug_save_defaults_button.offset_right = -72.0
-	debug_save_defaults_button.offset_top = margin
-	debug_save_defaults_button.offset_bottom = margin + 28.0
-	shader_button.offset_left = -228.0
-	shader_button.offset_right = -180.0
-	shader_button.offset_top = margin
-	shader_button.offset_bottom = margin + 28.0
-	help_button.offset_left = -174.0
-	help_button.offset_right = -126.0
-	help_button.offset_top = margin
-	help_button.offset_bottom = margin + 28.0
-	fullscreen_button.offset_left = -66.0
-	fullscreen_button.offset_right = -22.0
-	fullscreen_button.offset_top = margin
-	fullscreen_button.offset_bottom = margin + 28.0
+	var utility_width := 72.0 if is_phone_portrait else (56.0 if compact else 48.0)
+	var utility_height := 48.0 if is_phone_portrait else (36.0 if compact else 28.0)
+	var utility_gap := 10.0 if is_phone_portrait else 6.0
+	var utility_right := -margin
+	for button in [fullscreen_button, help_button, shader_button, debug_save_defaults_button]:
+		if button == null or not button.visible:
+			continue
+		button.offset_right = utility_right
+		button.offset_left = utility_right - utility_width
+		button.offset_top = margin
+		button.offset_bottom = margin + utility_height
+		utility_right = button.offset_left - utility_gap
 	var settings_width := viewport_size.x - margin * 2.0 if compact else 340.0
 	settings_panel.anchor_left = 0.0 if compact else 1.0
 	settings_panel.anchor_right = 1.0
@@ -4337,8 +4796,8 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	settings_panel.offset_right = -margin if compact else -24.0
 	settings_panel.offset_top = margin
 	settings_panel.offset_bottom = min(viewport_size.y - margin, 852.0 if not compact else viewport_size.y - margin)
-	var shader_panel_width: float = min(viewport_size.x - margin * 2.0, 360.0 if not compact else viewport_size.x - margin * 2.0)
-	var shader_panel_height: float = min(viewport_size.y - margin * 2.0, 252.0)
+	var shader_panel_width: float = min(viewport_size.x - margin * 2.0, 420.0 if not compact else viewport_size.x - margin * 2.0)
+	var shader_panel_height: float = min(viewport_size.y - margin * 2.0, 340.0 if is_phone_portrait else 252.0)
 	shader_panel.offset_left = -shader_panel_width * 0.5
 	shader_panel.offset_right = shader_panel_width * 0.5
 	shader_panel.offset_top = -shader_panel_height * 0.5
@@ -4356,7 +4815,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	attitude_shader_button.offset_right = shader_panel_width - 20.0
 	shader_hint.offset_right = shader_panel_width - 20.0
 	var controls_width: float = min(viewport_size.x - margin * 2.0, 560.0 if not compact else viewport_size.x - margin * 2.0)
-	var controls_height: float = min(viewport_size.y - margin * 2.0, 440.0 if not compact else viewport_size.y - margin * 2.0)
+	var controls_height: float = min(viewport_size.y - margin * 2.0, 520.0 if is_phone_portrait else (440.0 if not compact else viewport_size.y - margin * 2.0))
 	controls_panel.offset_left = -controls_width * 0.5
 	controls_panel.offset_right = controls_width * 0.5
 	controls_panel.offset_top = -controls_height * 0.5
@@ -4377,10 +4836,84 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	controls_keyboard_label.offset_right = controls_keyboard_text.offset_right
 	controls_hint.offset_top = controls_height - 34.0
 	controls_hint.offset_bottom = controls_height - 12.0
+	var frame_title_size := 15 if is_phone_portrait else 11
+	var panel_text_size := 14 if is_phone_portrait else 11
+	var panel_small_size := 12 if is_phone_portrait else 10
+	var utility_button_font := 24 if is_phone_portrait else 18
+	var panel_button_font := 20 if is_phone_portrait else 18
+	var panel_button_height := 54.0 if is_phone_portrait else 0.0
+	($CanvasLayer/HUD/LeftFrame/ShipTitle as Label).add_theme_font_size_override("font_size", frame_title_size)
+	($CanvasLayer/HUD/RightFrame/CombatTitle as Label).add_theme_font_size_override("font_size", frame_title_size)
+	dock_value.add_theme_font_size_override("font_size", panel_text_size)
+	route_value.add_theme_font_size_override("font_size", panel_text_size)
+	scanner_value.add_theme_font_size_override("font_size", panel_small_size)
+	combat_value.add_theme_font_size_override("font_size", panel_text_size)
+	build_value.add_theme_font_size_override("font_size", panel_small_size)
+	message_value.add_theme_font_size_override("font_size", panel_text_size)
+	debug_save_defaults_button.add_theme_font_size_override("font_size", utility_button_font)
+	shader_button.add_theme_font_size_override("font_size", utility_button_font)
+	help_button.add_theme_font_size_override("font_size", utility_button_font)
+	fullscreen_button.add_theme_font_size_override("font_size", utility_button_font)
+	settings_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
+	controls_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
+	shader_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
+	for label in [
+		preset_value,
+		bloom_value,
+		music_value,
+		sfx_value,
+		trail_value,
+		guidance_value,
+		invert_y_value,
+		physics_mode_value,
+		edge_threshold_value,
+		edge_strength_value,
+		edge_glow_value,
+		blur_amount_value,
+		shader_aux_value,
+		settings_hint,
+		settings_hotkeys,
+		post_fx_value,
+		blur_fx_value,
+		attitude_shader_value,
+		shader_hint,
+		controls_keyboard_label,
+		controls_keyboard_text,
+		controls_controller_label,
+		controls_controller_text,
+		controls_hint
+	]:
+		if label == null:
+			continue
+		label.add_theme_font_size_override("font_size", 16 if is_phone_portrait else 12)
+	for button in [
+		controls_button,
+		controls_close_button,
+		shader_close_button,
+		post_fx_button,
+		blur_fx_button,
+		attitude_shader_button,
+		preset_prev_button,
+		preset_next_button,
+		render_mode_button,
+		bloom_button,
+		music_button,
+		sfx_button,
+		trail_button,
+		guidance_button,
+		invert_y_button,
+		physics_mode_button
+	]:
+		if button == null:
+			continue
+		button.add_theme_font_size_override("font_size", panel_button_font)
+		if panel_button_height > 0.0:
+			button.custom_minimum_size.y = panel_button_height
 	if compact:
-		cockpit_overlay.scale = Vector2(0.82, 0.82)
+		cockpit_overlay.scale = Vector2(0.92, 0.92) if is_phone_portrait else Vector2(0.82, 0.82)
 	else:
 		cockpit_overlay.scale = Vector2.ONE
+	layout_touch_controls(viewport_size, margin, is_phone_portrait, compact)
 
 
 func toggle_fullscreen_mode() -> void:

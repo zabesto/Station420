@@ -44,6 +44,7 @@ var roll := 0.0
 var look_input := Vector2.ZERO
 var mouse_look_priority_timer := 0.0
 var controller_look_state := Vector2.ZERO
+var touch_look_state := Vector2.ZERO
 var forward_thrust_amount := 0.0
 var reverse_thrust_amount := 0.0
 var control_lock := false
@@ -63,6 +64,8 @@ var strobe_meshes: Array[MeshInstance3D] = []
 var strobe_lights: Array[OmniLight3D] = []
 var thruster_accent_color := Color(0.55, 0.95, 1.0)
 var thruster_shaded_mode := false
+var touch_move_input := Vector3.ZERO
+var touch_boost_active := false
 
 
 func _ready() -> void:
@@ -138,12 +141,14 @@ func _physics_process(delta: float) -> void:
 	if not control_lock:
 		apply_keyboard_look(delta)
 		apply_controller_look(delta)
+		apply_touch_look(delta)
 	else:
 		look_input = Vector2.ZERO
 		controller_look_state = controller_look_state.lerp(Vector2.ZERO, min(delta * controller_look_response, 1.0))
+		touch_look_state = touch_look_state.lerp(Vector2.ZERO, min(delta * controller_look_response, 1.0))
 
 	var move_input := get_flight_input() if not control_lock else Vector3.ZERO
-	boost_active = Input.is_key_pressed(KEY_SHIFT) or is_controller_boost_pressed()
+	boost_active = Input.is_key_pressed(KEY_SHIFT) or is_controller_boost_pressed() or touch_boost_active
 	if control_lock:
 		boost_active = false
 	var target_basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch) * Basis(Vector3.BACK, roll)
@@ -207,6 +212,15 @@ func apply_controller_look(delta: float) -> void:
 	look_input = Vector2.ZERO
 
 
+func apply_touch_look(delta: float) -> void:
+	if touch_look_state.length() <= 0.001:
+		return
+	look_input += Vector2(-touch_look_state.x * controller_look_speed.x, -touch_look_state.y * controller_look_speed.y) * delta
+	yaw += look_input.x
+	pitch = clamp(pitch + look_input.y, -0.95, 0.95)
+	look_input = Vector2.ZERO
+
+
 func set_gravity_acceleration(value: Vector3) -> void:
 	gravity_acceleration = value
 
@@ -243,6 +257,7 @@ func set_control_lock(enabled: bool) -> void:
 	if enabled:
 		look_input = Vector2.ZERO
 		controller_look_state = Vector2.ZERO
+		touch_look_state = Vector2.ZERO
 		forward_thrust_amount = 0.0
 		reverse_thrust_amount = 0.0
 
@@ -296,7 +311,21 @@ func get_flight_input() -> Vector3:
 		var reverse_trigger: float = clamp(Input.get_joy_axis(joypad, JOY_AXIS_TRIGGER_LEFT), 0.0, 1.0)
 		input_direction.z += reverse_trigger - forward_trigger
 
+	input_direction += touch_move_input
+
 	return input_direction.limit_length(1.0)
+
+
+func set_touch_move_input(input_direction: Vector3) -> void:
+	touch_move_input = input_direction.limit_length(1.0)
+
+
+func set_touch_look_input(input_vector: Vector2) -> void:
+	touch_look_state = input_vector.limit_length(1.0)
+
+
+func set_touch_boost(active: bool) -> void:
+	touch_boost_active = active
 
 
 func get_primary_joypad() -> int:
