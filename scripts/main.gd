@@ -161,6 +161,7 @@ const STATION_LAYOUT := [
 @onready var start_hint_label: Label = $CanvasLayer/HUD/StartHintLabel
 @onready var hit_label: Label = $CanvasLayer/HUD/HitLabel
 @onready var top_frame: Panel = $CanvasLayer/HUD/TopFrame
+@onready var attitude_frame: Panel = $CanvasLayer/HUD/AttitudeFrame
 @onready var left_frame: Panel = $CanvasLayer/HUD/LeftFrame
 @onready var right_frame: Panel = $CanvasLayer/HUD/RightFrame
 @onready var message_frame: Panel = $CanvasLayer/HUD/MessageFrame
@@ -170,13 +171,15 @@ const STATION_LAYOUT := [
 @onready var route_value: Label = $CanvasLayer/HUD/LeftFrame/RouteValue
 @onready var scanner_value: Label = $CanvasLayer/HUD/LeftFrame/ScannerValue
 @onready var combat_value: Label = $CanvasLayer/HUD/RightFrame/CombatValue
+@onready var build_value: Label = $CanvasLayer/HUD/RightFrame/BuildValue
 @onready var message_value: Label = $CanvasLayer/HUD/MessageFrame/MessageValue
 @onready var alert_value: Label = $CanvasLayer/HUD/TopFrame/AlertValue
 @onready var hit_value: Label = $CanvasLayer/HUD/TopFrame/HitValue
-@onready var attitude_viewport: SubViewport = $CanvasLayer/HUD/TopFrame/AttitudeViewport
-@onready var attitude_display: TextureRect = $CanvasLayer/HUD/TopFrame/AttitudeDisplay
-@onready var attitude_ball: MeshInstance3D = $CanvasLayer/HUD/TopFrame/AttitudeViewport/AttitudeRoot/AttitudeBall
-@onready var attitude_needle: MeshInstance3D = $CanvasLayer/HUD/TopFrame/AttitudeViewport/AttitudeRoot/AttitudeNeedle
+@onready var attitude_viewport: SubViewport = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport
+@onready var attitude_root: Node3D = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot
+@onready var attitude_display: TextureRect = $CanvasLayer/HUD/AttitudeFrame/AttitudeDisplay
+@onready var attitude_ball: MeshInstance3D = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot/AttitudeBall
+@onready var attitude_needle: MeshInstance3D = $CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot/AttitudeNeedle
 @onready var reticle: Control = $CanvasLayer/HUD/Reticle
 @onready var cockpit_overlay: Control = $CanvasLayer/HUD/CockpitOverlay
 @onready var cockpit_mode_label: Label = $CanvasLayer/HUD/CockpitOverlay/CockpitModeLabel
@@ -203,6 +206,7 @@ const STATION_LAYOUT := [
 @onready var physics_mode_value: Label = $CanvasLayer/HUD/SettingsPanel/PhysicsModeValue
 @onready var physics_mode_button: Button = $CanvasLayer/HUD/SettingsPanel/PhysicsModeButton
 @onready var edge_threshold_value: Label = $CanvasLayer/HUD/SettingsPanel/EdgeThresholdValue
+@onready var shader_mode_option: OptionButton = $CanvasLayer/HUD/SettingsPanel/ShaderModeOption
 @onready var edge_threshold_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/EdgeThresholdSlider
 @onready var edge_strength_value: Label = $CanvasLayer/HUD/SettingsPanel/EdgeStrengthValue
 @onready var edge_strength_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/EdgeStrengthSlider
@@ -210,6 +214,8 @@ const STATION_LAYOUT := [
 @onready var edge_glow_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/EdgeGlowSlider
 @onready var blur_amount_value: Label = $CanvasLayer/HUD/SettingsPanel/BlurAmountValue
 @onready var blur_amount_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/BlurAmountSlider
+@onready var shader_aux_value: Label = $CanvasLayer/HUD/SettingsPanel/ShaderAuxValue
+@onready var shader_aux_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/ShaderAuxSlider
 @onready var settings_hint: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHint
 @onready var settings_hotkeys: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHotkeys
 
@@ -250,6 +256,7 @@ var music_phase_a := 0.0
 var music_phase_b := 0.0
 var music_phase_c := 0.0
 var radio_track_index := -1
+var radio_start_track_index := 0
 var player_hull := PLAYER_MAX_HULL
 var player_shields := PLAYER_MAX_SHIELDS
 var kills := 0
@@ -277,6 +284,8 @@ var edge_threshold := 0.16
 var edge_strength_scale := 1.0
 var edge_glow_scale := 1.0
 var blur_strength_scale := 1.0
+var wire_shader_scale := 0.45
+var shader_mode_index := 1
 var autopilot_active := false
 var autopilot_state := ""
 var autopilot_station: Area3D = null
@@ -296,10 +305,14 @@ var idle_input_timer := 0.0
 var cinematic_mode_active := false
 var cinematic_blend := 0.0
 var cinematic_time := 0.0
+var hud_stats_refresh_timer := 0.0
 var last_viewport_size := Vector2.ZERO
 var objective_marker_base_mesh: Mesh
 var enemy_target_marker_base_mesh: Mesh
 var enemy_target_lead_base_mesh: Mesh
+var attitude_ring: MeshInstance3D
+var attitude_crosshair: MeshInstance3D
+var attitude_sun_marker: MeshInstance3D
 
 
 func _ready() -> void:
@@ -356,6 +369,7 @@ func _ready() -> void:
 	paused = true
 	title_label.text = "Station420"
 	update_combat_label()
+	update_build_label()
 	update_settings_label()
 	update_status("Press Enter to launch.\nMouse steers. Use Space to fire and Esc to pause once you are underway.")
 	update_mouse_mode()
@@ -382,16 +396,37 @@ func connect_settings_controls() -> void:
 	guidance_button.pressed.connect(_on_guidance_pressed)
 	invert_y_button.pressed.connect(_on_invert_y_pressed)
 	physics_mode_button.pressed.connect(_on_physics_mode_pressed)
+	shader_mode_option.item_selected.connect(_on_shader_mode_selected)
 	edge_threshold_slider.value_changed.connect(_on_edge_threshold_slider_changed)
 	edge_strength_slider.value_changed.connect(_on_edge_strength_slider_changed)
 	edge_glow_slider.value_changed.connect(_on_edge_glow_slider_changed)
 	blur_amount_slider.value_changed.connect(_on_blur_amount_slider_changed)
+	shader_aux_slider.value_changed.connect(_on_shader_aux_slider_changed)
+	populate_shader_mode_option()
 	music_slider.value = music_volume * 100.0
 	sfx_slider.value = sfx_volume * 100.0
 	edge_threshold_slider.value = edge_threshold * 100.0
 	edge_strength_slider.value = edge_strength_scale * 100.0
 	edge_glow_slider.value = edge_glow_scale * 100.0
-	blur_amount_slider.value = blur_strength_scale * 100.0
+	blur_amount_slider.value = wire_shader_scale * 100.0
+	shader_aux_slider.value = blur_strength_scale * 100.0
+
+
+func populate_shader_mode_option() -> void:
+	if shader_mode_option == null:
+		return
+	shader_mode_option.clear()
+	for name in [
+		"PBR Lite",
+		"Neon Edge",
+		"Cartoon",
+		"Glass",
+		"Blur",
+		"ASCII",
+		"Metal Scan"
+	]:
+		shader_mode_option.add_item(name)
+	shader_mode_option.selected = clamp(shader_mode_index, 0, shader_mode_option.item_count - 1)
 
 
 func load_saved_defaults() -> void:
@@ -413,10 +448,12 @@ func load_saved_defaults() -> void:
 	sfx_volume = float(data.get("sfx_volume", sfx_volume))
 	invert_y_axis = bool(data.get("invert_y_axis", invert_y_axis))
 	flight_physics_mode = str(data.get("flight_physics_mode", flight_physics_mode))
+	shader_mode_index = int(data.get("shader_mode_index", shader_mode_index))
 	edge_threshold = float(data.get("edge_threshold", edge_threshold))
 	edge_strength_scale = float(data.get("edge_strength_scale", edge_strength_scale))
 	edge_glow_scale = float(data.get("edge_glow_scale", edge_glow_scale))
 	blur_strength_scale = float(data.get("blur_strength_scale", blur_strength_scale))
+	wire_shader_scale = float(data.get("wire_shader_scale", wire_shader_scale))
 	camera_mode = int(data.get("camera_mode", camera_mode))
 	orbit_distance = float(data.get("orbit_distance", orbit_distance))
 	orbit_pitch = float(data.get("orbit_pitch", orbit_pitch))
@@ -441,10 +478,12 @@ func save_current_defaults() -> void:
 		"sfx_volume": sfx_volume,
 		"invert_y_axis": invert_y_axis,
 		"flight_physics_mode": flight_physics_mode,
+		"shader_mode_index": shader_mode_index,
 		"edge_threshold": edge_threshold,
 		"edge_strength_scale": edge_strength_scale,
 		"edge_glow_scale": edge_glow_scale,
 		"blur_strength_scale": blur_strength_scale,
+		"wire_shader_scale": wire_shader_scale,
 		"camera_mode": camera_mode,
 		"orbit_distance": orbit_distance,
 		"orbit_pitch": orbit_pitch,
@@ -475,7 +514,8 @@ func _process(delta: float) -> void:
 	update_music_stream()
 	update_alert(delta)
 	update_hit_feedback(delta)
-	update_settings_label()
+	if settings_visible:
+		update_settings_label()
 	update_debug_overlay()
 	update_overlay_blur()
 	update_attitude_indicator()
@@ -494,8 +534,11 @@ func _process(delta: float) -> void:
 	update_enemy_target_marker()
 	update_station_spin(delta)
 	update_destroyer_fleet(delta)
-	update_scanner()
-	update_combat_label()
+	hud_stats_refresh_timer = max(hud_stats_refresh_timer - delta, 0.0)
+	if hud_stats_refresh_timer == 0.0:
+		update_scanner()
+		update_combat_label()
+		hud_stats_refresh_timer = 0.12
 
 
 func note_player_activity() -> void:
@@ -529,6 +572,7 @@ func update_cinematic_overlay() -> void:
 		debug_save_defaults_button,
 		fullscreen_button,
 		top_frame,
+		attitude_frame,
 		left_frame,
 		right_frame,
 		message_frame,
@@ -1415,13 +1459,26 @@ func get_autopilot_state_display() -> String:
 func setup_attitude_indicator() -> void:
 	attitude_viewport.msaa_3d = Viewport.MSAA_4X
 	attitude_display.texture = attitude_viewport.get_texture()
-	attitude_viewport.size = Vector2i(156, 156)
-	update_attitude_indicator_theme()
+	attitude_viewport.size = Vector2i(256, 256)
+	attitude_viewport.transparent_bg = true
 
 	var needle_mesh := BoxMesh.new()
-	needle_mesh.size = Vector3(3.6, 0.12, 0.12)
+	needle_mesh.size = Vector3(5.2, 0.16, 0.16)
 	attitude_needle.mesh = needle_mesh
-	attitude_needle.position = Vector3(0.0, 0.0, 2.75)
+	attitude_needle.position = Vector3(0.0, 0.0, 3.45)
+	attitude_ring = MeshInstance3D.new()
+	attitude_ring.name = "AttitudeRing"
+	attitude_ring.mesh = build_attitude_ring_mesh(3.55, 48)
+	attitude_root.add_child(attitude_ring)
+	attitude_crosshair = MeshInstance3D.new()
+	attitude_crosshair.name = "AttitudeCrosshair"
+	attitude_crosshair.mesh = build_attitude_crosshair_mesh(3.25)
+	attitude_root.add_child(attitude_crosshair)
+	attitude_sun_marker = MeshInstance3D.new()
+	attitude_sun_marker.name = "AttitudeSunMarker"
+	attitude_sun_marker.mesh = build_attitude_sun_marker_mesh()
+	attitude_root.add_child(attitude_sun_marker)
+	update_attitude_indicator_theme()
 
 
 func update_attitude_indicator() -> void:
@@ -1432,6 +1489,10 @@ func update_attitude_indicator() -> void:
 	var relative_basis := reference_basis.inverse() * ship_basis.orthonormalized()
 	attitude_ball.transform.basis = relative_basis.orthonormalized()
 	attitude_needle.transform.basis = Basis.IDENTITY
+	attitude_ring.transform.basis = Basis.IDENTITY
+	attitude_crosshair.transform.basis = Basis.IDENTITY
+	attitude_sun_marker.transform.basis = Basis.IDENTITY
+	attitude_sun_marker.position = Vector3(0.0, 3.18, 0.0)
 
 
 func get_attitude_reference_basis() -> Basis:
@@ -1458,35 +1519,48 @@ func update_attitude_indicator_theme() -> void:
 	var accent := resolve_style_color("objective", Color(0.55, 0.95, 1.0))
 	var hull_tint := resolve_style_color("player", Color(0.45, 0.88, 1.0))
 	attitude_display.modulate = Color(1, 1, 1, 0.96)
-	if shaded_mode:
-		var ball_mesh := SphereMesh.new()
-		ball_mesh.radius = 2.35
-		ball_mesh.height = 4.7
-		ball_mesh.radial_segments = 30
-		ball_mesh.rings = 22
-		attitude_ball.mesh = ball_mesh
-		var ball_material := StandardMaterial3D.new()
-		ball_material.albedo_color = hull_tint.lerp(Color(0.04, 0.06, 0.1), 0.78)
-		ball_material.metallic = 0.22
-		ball_material.roughness = 0.18
-		ball_material.emission_enabled = true
-		ball_material.emission = accent * 0.12
-		attitude_ball.material_override = ball_material
-	else:
-		attitude_ball.mesh = build_attitude_wire_mesh(2.4, 32)
-		var ball_material := StandardMaterial3D.new()
-		ball_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		ball_material.albedo_color = Color(accent.r, accent.g, accent.b, 0.86)
-		ball_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		ball_material.emission_enabled = true
-		ball_material.emission = accent * 1.12
-		attitude_ball.material_override = ball_material
+	var ball_mesh := SphereMesh.new()
+	ball_mesh.radius = 3.1
+	ball_mesh.height = 6.2
+	ball_mesh.radial_segments = 40
+	ball_mesh.rings = 28
+	attitude_ball.mesh = ball_mesh
+	var ball_material := ShaderMaterial.new()
+	ball_material.shader = load("res://shaders/attitude_ball.gdshader")
+	var upper_color := accent.lerp(Color(0.12, 0.62, 1.0), 0.55)
+	var lower_color := accent.lerp(Color(1.0, 0.46, 0.14), 0.72)
+	var line_color := accent.lerp(Color.WHITE, 0.72)
+	ball_material.set_shader_parameter("upper_color", upper_color)
+	ball_material.set_shader_parameter("lower_color", lower_color)
+	ball_material.set_shader_parameter("line_color", line_color)
+	ball_material.set_shader_parameter("accent_color", accent)
+	ball_material.set_shader_parameter("glow_strength", 1.2 if shaded_mode else 1.7)
+	ball_material.set_shader_parameter("alpha_scale", 0.96 if shaded_mode else 0.88)
+	attitude_ball.material_override = ball_material
 	var needle_material := StandardMaterial3D.new()
 	needle_material.albedo_color = accent.lerp(Color.WHITE, 0.18)
 	needle_material.emission_enabled = true
 	needle_material.emission = accent * (0.8 if shaded_mode else 1.35)
 	needle_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	attitude_needle.material_override = needle_material
+	var frame_material := StandardMaterial3D.new()
+	frame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	frame_material.albedo_color = Color(accent.r, accent.g, accent.b, 0.92)
+	frame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	frame_material.emission_enabled = true
+	frame_material.emission = accent * (1.1 if shaded_mode else 1.45)
+	if attitude_ring != null:
+		attitude_ring.material_override = frame_material
+	if attitude_crosshair != null:
+		attitude_crosshair.material_override = frame_material
+	if attitude_sun_marker != null:
+		var sun_material := StandardMaterial3D.new()
+		sun_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sun_material.albedo_color = accent.lerp(Color(1.0, 0.92, 0.58), 0.62)
+		sun_material.emission_enabled = true
+		sun_material.emission = sun_material.albedo_color * 1.35
+		sun_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		attitude_sun_marker.material_override = sun_material
 
 
 func build_attitude_wire_mesh(radius: float, segments: int) -> ArrayMesh:
@@ -1509,6 +1583,57 @@ func build_attitude_wire_mesh(radius: float, segments: int) -> ArrayMesh:
 					p1 = Vector3(cos(a1) * radius, sin(a1) * radius, 0.0)
 			vertices.append(p0)
 			vertices.append(p1)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	return mesh
+
+
+func build_attitude_ring_mesh(radius: float, segments: int) -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	for i in range(segments):
+		var a0 := TAU * float(i) / float(segments)
+		var a1 := TAU * float(i + 1) / float(segments)
+		vertices.append(Vector3(cos(a0) * radius, sin(a0) * radius, 0.0))
+		vertices.append(Vector3(cos(a1) * radius, sin(a1) * radius, 0.0))
+	for tick_index in range(8):
+		var tick_angle := TAU * float(tick_index) / 8.0
+		var outer := Vector3(cos(tick_angle) * radius, sin(tick_angle) * radius, 0.0)
+		var inner := Vector3(cos(tick_angle) * (radius - 0.42), sin(tick_angle) * (radius - 0.42), 0.0)
+		vertices.append(inner)
+		vertices.append(outer)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	return mesh
+
+
+func build_attitude_crosshair_mesh(radius: float) -> ArrayMesh:
+	var vertices := PackedVector3Array([
+		Vector3(-radius, 0.0, 0.0), Vector3(-1.15, 0.0, 0.0),
+		Vector3(1.15, 0.0, 0.0), Vector3(radius, 0.0, 0.0),
+		Vector3(0.0, -radius, 0.0), Vector3(0.0, -1.15, 0.0),
+		Vector3(0.0, 1.15, 0.0), Vector3(0.0, radius, 0.0)
+	])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	return mesh
+
+
+func build_attitude_sun_marker_mesh() -> ArrayMesh:
+	var vertices := PackedVector3Array([
+		Vector3(-0.42, 0.0, 0.0), Vector3(0.42, 0.0, 0.0),
+		Vector3(0.0, -0.42, 0.0), Vector3(0.0, 0.42, 0.0),
+		Vector3(-0.28, -0.28, 0.0), Vector3(0.28, 0.28, 0.0),
+		Vector3(-0.28, 0.28, 0.0), Vector3(0.28, -0.28, 0.0)
+	])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
@@ -1543,7 +1668,7 @@ func setup_edge_pass() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = load("res://shaders/edge_pass.gdshader")
 	edge_pass.material = material
-	edge_pass.visible = shaded_mode
+	edge_pass.visible = true
 
 
 func setup_blur_pass() -> void:
@@ -1584,43 +1709,43 @@ func toggle_shaded_mode() -> void:
 func apply_visual_preset() -> void:
 	if world_environment.environment == null:
 		setup_visual_environment()
-	edge_pass.visible = shaded_mode
+	edge_pass.visible = true
 	update_edge_pass_theme()
 	update_blur_pass_theme()
 	update_attitude_indicator_theme()
 	var environment := world_environment.environment
 	match visual_preset_index:
 		1:
-			environment.background_color = Color(0.05, 0.07, 0.12)
+			environment.background_color = Color(0.03, 0.06, 0.1)
 			environment.ambient_light_color = Color(0.42, 0.84, 1.0)
-			environment.ambient_light_energy = 0.45
-			environment.fog_enabled = true
+			environment.ambient_light_energy = 0.52
+			environment.fog_enabled = false
 			environment.fog_light_color = Color(0.18, 0.54, 0.88)
-			environment.fog_density = 0.000008
+			environment.fog_density = 0.0
 		2:
-			environment.background_color = Color(0.08, 0.07, 0.09)
+			environment.background_color = Color(0.07, 0.06, 0.08)
 			environment.ambient_light_color = Color(0.95, 0.78, 0.58)
-			environment.ambient_light_energy = 0.5
-			environment.fog_enabled = true
+			environment.ambient_light_energy = 0.58
+			environment.fog_enabled = false
 			environment.fog_light_color = Color(0.46, 0.34, 0.22)
-			environment.fog_density = 0.000009
+			environment.fog_density = 0.0
 		3:
-			environment.background_color = Color(0.03, 0.12, 0.12)
+			environment.background_color = Color(0.02, 0.11, 0.11)
 			environment.ambient_light_color = Color(0.34, 0.95, 0.82)
-			environment.ambient_light_energy = 0.42
-			environment.fog_enabled = true
+			environment.ambient_light_energy = 0.5
+			environment.fog_enabled = false
 			environment.fog_light_color = Color(0.1, 0.66, 0.62)
-			environment.fog_density = 0.000007
+			environment.fog_density = 0.0
 		_:
 			environment.background_color = Color(0.005, 0.008, 0.014)
 			environment.ambient_light_color = Color(0.46, 0.52, 0.62)
-			environment.ambient_light_energy = 0.38
+			environment.ambient_light_energy = 0.44
 			environment.fog_enabled = false
 
 	environment.glow_enabled = bloom_enabled
-	environment.glow_intensity = 0.78 if bloom_enabled else 0.0
-	environment.glow_strength = 0.95 if bloom_enabled else 0.0
-	environment.glow_bloom = 0.18 if bloom_enabled else 0.0
+	environment.glow_intensity = 0.92 if bloom_enabled else 0.0
+	environment.glow_strength = 1.12 if bloom_enabled else 0.0
+	environment.glow_bloom = 0.22 if bloom_enabled else 0.0
 	environment.tonemap_exposure = 1.18 if shaded_mode else (1.1 if visual_preset_index == 1 else 1.0)
 
 	if sunlight != null:
@@ -1640,35 +1765,32 @@ func update_edge_pass_theme() -> void:
 	if not (edge_material is ShaderMaterial):
 		return
 	var tint := Color(0.82, 0.92, 1.0)
-	var strength := 1.45
-	var glow_strength := 1.0
 	var halo_radius := 1.8
 	match visual_preset_index:
 		1:
 			tint = Color(0.38, 1.0, 0.92)
-			strength = 1.6
-			glow_strength = 1.18
-			halo_radius = 1.95
+			halo_radius = 2.15
 		2:
 			tint = Color(1.0, 0.8, 0.34)
-			strength = 1.52
-			glow_strength = 0.96
-			halo_radius = 1.7
+			halo_radius = 1.9
 		3:
 			tint = Color(0.34, 1.0, 0.86)
-			strength = 1.66
-			glow_strength = 1.24
-			halo_radius = 2.05
+			halo_radius = 2.3
 		_:
 			tint = Color(0.84, 0.92, 1.0)
-			strength = 1.42
-			glow_strength = 1.02
-			halo_radius = 1.78
+			halo_radius = 1.95
+	var darken := 0.06 if shaded_mode else 0.02
+	var mode_threshold := 0.12 + edge_strength_scale * 0.28
+	var mode_strength := 0.7 + edge_threshold * (1.0 if shaded_mode else wire_shader_scale * 0.9)
+	var mode_glow := 0.28 + edge_glow_scale * (1.1 if shaded_mode else 0.8 + wire_shader_scale * 0.85)
+	edge_material.set_shader_parameter("effect_mode", shader_mode_index)
 	edge_material.set_shader_parameter("edge_tint", Vector3(tint.r, tint.g, tint.b))
-	edge_material.set_shader_parameter("threshold", edge_threshold)
-	edge_material.set_shader_parameter("strength", strength * edge_strength_scale)
-	edge_material.set_shader_parameter("glow_strength", glow_strength * edge_glow_scale)
+	edge_material.set_shader_parameter("threshold", mode_threshold)
+	edge_material.set_shader_parameter("strength", mode_strength)
+	edge_material.set_shader_parameter("glow_strength", mode_glow)
 	edge_material.set_shader_parameter("halo_radius", halo_radius)
+	edge_material.set_shader_parameter("darken", darken)
+	edge_material.set_shader_parameter("aux_mix", blur_strength_scale)
 
 
 func update_blur_pass_theme() -> void:
@@ -1678,14 +1800,14 @@ func update_blur_pass_theme() -> void:
 	var tint := Color(0.06, 0.11, 0.18, 0.26)
 	match visual_preset_index:
 		1:
-			tint = Color(0.08, 0.24, 0.28, 0.42)
+			tint = Color(0.08, 0.24, 0.28, 0.1)
 		2:
-			tint = Color(0.22, 0.15, 0.08, 0.38)
+			tint = Color(0.22, 0.15, 0.08, 0.08)
 		3:
-			tint = Color(0.05, 0.22, 0.18, 0.42)
+			tint = Color(0.05, 0.22, 0.18, 0.1)
 		_:
-			tint = Color(0.08, 0.12, 0.2, 0.4)
-	blur_material.set_shader_parameter("fog_density", blur_strength_scale)
+			tint = Color(0.08, 0.12, 0.2, 0.08)
+	blur_material.set_shader_parameter("fog_density", blur_strength_scale * 0.35)
 	blur_material.set_shader_parameter("tint", tint)
 
 
@@ -1763,7 +1885,17 @@ func build_style_material(role: String, base_color: Color, render_variant: Strin
 	else:
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		material.emission_enabled = true
-		material.emission = color
+		var line_boost := 1.35
+		match visual_preset_index:
+			1:
+				line_boost = 1.85
+			2:
+				line_boost = 1.55
+			3:
+				line_boost = 2.0
+			_:
+				line_boost = 1.42
+		material.emission = color * line_boost
 	if color.a < 0.99 and not is_shaded_solid:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	if visual_preset_index == 3 and role not in ["enemy", "danger"] and not is_shaded_solid:
@@ -1875,9 +2007,10 @@ func apply_hud_style() -> void:
 	route_value.modulate = hud_color
 	scanner_value.modulate = hud_color
 	combat_value.modulate = hud_color
+	build_value.modulate = accent_color
 	message_value.modulate = hud_color
-	alert_value.modulate = alert_color
-	hit_value.modulate = alert_color
+	alert_value.modulate = accent_color
+	hit_value.modulate = hud_color
 	hull_bar.modulate = accent_color
 	shield_bar.modulate = hud_color
 	reticle.modulate = accent_color
@@ -1893,6 +2026,15 @@ func apply_hud_style() -> void:
 	bloom_value.modulate = hud_color
 	music_value.modulate = hud_color
 	sfx_value.modulate = hud_color
+	trail_value.modulate = hud_color
+	guidance_value.modulate = hud_color
+	invert_y_value.modulate = hud_color
+	physics_mode_value.modulate = hud_color
+	edge_threshold_value.modulate = hud_color
+	edge_strength_value.modulate = hud_color
+	edge_glow_value.modulate = hud_color
+	blur_amount_value.modulate = hud_color
+	shader_aux_value.modulate = hud_color
 	settings_hint.modulate = accent_color
 	settings_hotkeys.modulate = hud_color
 	apply_button_styles(hud_color, accent_color, alert_color)
@@ -1902,10 +2044,11 @@ func apply_hud_style() -> void:
 
 
 func apply_panel_styles(hud_color: Color, accent_color: Color, alert_color: Color) -> void:
-	top_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.05, 0.06, 0.08, 0.72), alert_color, 18))
+	top_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.8), accent_color, 18))
+	attitude_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.82), accent_color, 22))
 	left_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.76), accent_color, 20))
 	right_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.03, 0.05, 0.08, 0.76), accent_color, 20))
-	message_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.8), hud_color, 18))
+	message_frame.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.82), hud_color, 18))
 	settings_panel.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.88), accent_color, 16))
 	pause_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), alert_color, 24))
 	start_card.add_theme_stylebox_override("panel", make_panel_stylebox(Color(0.02, 0.03, 0.05, 0.9), accent_color, 28))
@@ -1923,6 +2066,7 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 		fullscreen_button,
 		preset_prev_button,
 		preset_next_button,
+		shader_mode_option,
 		render_mode_button,
 		bloom_button,
 		music_button,
@@ -1955,6 +2099,8 @@ func make_panel_stylebox(background: Color, border: Color, radius: int) -> Style
 	style.bg_color = background
 	style.border_color = border
 	style.set_border_width_all(2)
+	style.anti_aliasing = true
+	style.anti_aliasing_size = 1.2
 	style.corner_radius_top_left = radius
 	style.corner_radius_top_right = radius
 	style.corner_radius_bottom_right = radius
@@ -1963,8 +2109,8 @@ func make_panel_stylebox(background: Color, border: Color, radius: int) -> Style
 	style.content_margin_top = 8.0
 	style.content_margin_right = 10.0
 	style.content_margin_bottom = 8.0
-	style.shadow_color = Color(0, 0, 0, 0.34)
-	style.shadow_size = 10
+	style.shadow_color = Color(0, 0, 0, 0.0)
+	style.shadow_size = 0
 	return style
 
 
@@ -1973,6 +2119,8 @@ func make_bar_stylebox(background: Color, border: Color) -> StyleBoxFlat:
 	style.bg_color = background
 	style.border_color = border
 	style.set_border_width_all(1)
+	style.anti_aliasing = true
+	style.anti_aliasing_size = 1.1
 	style.corner_radius_top_left = 8
 	style.corner_radius_top_right = 8
 	style.corner_radius_bottom_right = 8
@@ -1985,6 +2133,8 @@ func make_button_stylebox(background: Color, border: Color) -> StyleBoxFlat:
 	style.bg_color = background
 	style.border_color = border
 	style.set_border_width_all(2)
+	style.anti_aliasing = true
+	style.anti_aliasing_size = 1.1
 	style.corner_radius_top_left = 14
 	style.corner_radius_top_right = 14
 	style.corner_radius_bottom_right = 14
@@ -1993,8 +2143,8 @@ func make_button_stylebox(background: Color, border: Color) -> StyleBoxFlat:
 	style.content_margin_top = 4.0
 	style.content_margin_right = 8.0
 	style.content_margin_bottom = 4.0
-	style.shadow_color = Color(0, 0, 0, 0.28)
-	style.shadow_size = 8
+	style.shadow_color = Color(0, 0, 0, 0.0)
+	style.shadow_size = 0
 	return style
 
 
@@ -2047,23 +2197,35 @@ func _on_physics_mode_pressed() -> void:
 	toggle_physics_mode()
 
 
+func _on_shader_mode_selected(index: int) -> void:
+	shader_mode_index = index
+	update_edge_pass_theme()
+	update_settings_label()
+
+
 func _on_edge_threshold_slider_changed(value: float) -> void:
-	edge_threshold = clamp(value / 100.0, 0.05, 0.35)
+	edge_threshold = clamp(value / 100.0, 0.0, 1.0)
 	update_edge_pass_theme()
 
 
 func _on_edge_strength_slider_changed(value: float) -> void:
-	edge_strength_scale = clamp(value / 100.0, 0.5, 2.0)
+	edge_strength_scale = clamp(value / 100.0, 0.0, 1.0)
 	update_edge_pass_theme()
 
 
 func _on_edge_glow_slider_changed(value: float) -> void:
-	edge_glow_scale = clamp(value / 100.0, 0.5, 2.0)
+	edge_glow_scale = clamp(value / 100.0, 0.0, 1.0)
 	update_edge_pass_theme()
 
 
 func _on_blur_amount_slider_changed(value: float) -> void:
-	blur_strength_scale = clamp(value / 100.0, 0.5, 2.2)
+	wire_shader_scale = clamp(value / 100.0, 0.0, 1.0)
+	update_edge_pass_theme()
+
+
+func _on_shader_aux_slider_changed(value: float) -> void:
+	blur_strength_scale = clamp(value / 100.0, 0.0, 1.0)
+	update_edge_pass_theme()
 	update_blur_pass_theme()
 
 
@@ -2115,10 +2277,13 @@ func update_settings_label() -> void:
 	guidance_value.text = "Guidance: %s" % ("On" if objective_guidance_enabled else "Off")
 	invert_y_value.text = "Invert Y: %s" % ("On" if invert_y_axis else "Off")
 	physics_mode_value.text = "Flight Mode: %s" % flight_physics_mode.capitalize()
-	edge_threshold_value.text = "Edge Threshold: %.2f" % edge_threshold
-	edge_strength_value.text = "Edge Strength: %d%%" % int(round(edge_strength_scale * 100.0))
-	edge_glow_value.text = "Edge Glow: %d%%" % int(round(edge_glow_scale * 100.0))
-	blur_amount_value.text = "Fog Amount: %d%%" % int(round(blur_strength_scale * 100.0))
+	edge_threshold_value.text = "Shader"
+	edge_strength_value.text = "Intensity: %d%%" % int(round(edge_threshold * 100.0))
+	edge_glow_value.text = "Detail: %d%%" % int(round(edge_strength_scale * 100.0))
+	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
+	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
+	if shader_mode_option.selected != shader_mode_index:
+		shader_mode_option.selected = shader_mode_index
 	if abs(music_slider.value - music_volume * 100.0) > 0.5:
 		music_slider.value = music_volume * 100.0
 	if abs(sfx_slider.value - sfx_volume * 100.0) > 0.5:
@@ -2129,8 +2294,10 @@ func update_settings_label() -> void:
 		edge_strength_slider.value = edge_strength_scale * 100.0
 	if abs(edge_glow_slider.value - edge_glow_scale * 100.0) > 0.5:
 		edge_glow_slider.value = edge_glow_scale * 100.0
-	if abs(blur_amount_slider.value - blur_strength_scale * 100.0) > 0.5:
-		blur_amount_slider.value = blur_strength_scale * 100.0
+	if abs(blur_amount_slider.value - wire_shader_scale * 100.0) > 0.5:
+		blur_amount_slider.value = wire_shader_scale * 100.0
+	if abs(shader_aux_slider.value - blur_strength_scale * 100.0) > 0.5:
+		shader_aux_slider.value = blur_strength_scale * 100.0
 
 
 func update_hit_feedback(delta: float) -> void:
@@ -2533,6 +2700,13 @@ func update_combat_label() -> void:
 	]
 
 
+func update_build_label() -> void:
+	var version := str(ProjectSettings.get_setting("application/config/version", "0.0-dev"))
+	var runtime := "WEB" if OS.has_feature("web") else "DESKTOP"
+	var build_flavor := "DBG" if OS.has_feature("debug") else "REL"
+	build_value.text = "%s %s %s" % [build_flavor, version, runtime]
+
+
 func update_player_combat(delta: float) -> void:
 	fire_cooldown = max(fire_cooldown - delta, 0.0)
 	shield_recharge_delay = max(shield_recharge_delay - delta, 0.0)
@@ -2883,10 +3057,19 @@ func trigger_game_over(reason: String) -> void:
 
 
 func setup_audio() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var tracks := get_radio_tracks()
+	radio_start_track_index = rng.randi_range(0, tracks.size() - 1)
+	music_time = radio_start_track_index * 24.0 + rng.randf_range(0.0, 3.0)
+	music_phase_a = rng.randf_range(0.0, TAU)
+	music_phase_b = rng.randf_range(0.0, TAU)
+	music_phase_c = rng.randf_range(0.0, TAU)
+	radio_track_index = -1
 	music_player = AudioStreamPlayer.new()
 	music_player.name = "MusicPlayer"
 	if OS.has_feature("web"):
-		music_player.stream = build_radio_loop_stream()
+		music_player.stream = build_radio_loop_stream(radio_start_track_index)
 	else:
 		var generator := AudioStreamGenerator.new()
 		generator.mix_rate = AUDIO_MIX_RATE
@@ -2918,11 +3101,7 @@ func update_music_stream() -> void:
 	if frames_available <= 0:
 		return
 
-	var tracks := [
-		{"name": "Drift", "progression": [55.0, 82.41, 73.42, 98.0], "accent": [220.0, 246.94, 196.0, 164.81], "pulse": 0.125},
-		{"name": "Nebula FM", "progression": [61.74, 92.5, 82.41, 110.0], "accent": [164.81, 220.0, 246.94, 293.66], "pulse": 0.142},
-		{"name": "Deep Relay", "progression": [49.0, 65.41, 73.42, 87.31], "accent": [146.83, 196.0, 220.0, 174.61], "pulse": 0.11}
-	]
+	var tracks := get_radio_tracks()
 	var track_index := int(floor(music_time / 24.0)) % tracks.size()
 	if track_index != radio_track_index:
 		radio_track_index = track_index
@@ -2946,6 +3125,14 @@ func update_music_stream() -> void:
 		var sample: float = clamp(drone + shimmer + pulse + sub, -0.55, 0.55)
 		music_playback.push_frame(Vector2(sample, sample))
 		music_time += 1.0 / AUDIO_MIX_RATE
+
+
+func get_radio_tracks() -> Array:
+	return [
+		{"name": "Drift", "progression": [55.0, 82.41, 73.42, 98.0], "accent": [220.0, 246.94, 196.0, 164.81], "pulse": 0.125},
+		{"name": "Nebula FM", "progression": [61.74, 92.5, 82.41, 110.0], "accent": [164.81, 220.0, 246.94, 293.66], "pulse": 0.142},
+		{"name": "Deep Relay", "progression": [49.0, 65.41, 73.42, 87.31], "accent": [146.83, 196.0, 220.0, 174.61], "pulse": 0.11}
+	]
 
 
 func play_sfx(name: String, volume_db: float = -6.0) -> void:
@@ -3088,7 +3275,7 @@ func build_launch_stream() -> AudioStreamWAV:
 	return build_tone_stream([220.0, 330.0, 440.0, 554.37], 0.42, 0.24, 0.08, 0.95)
 
 
-func build_radio_loop_stream() -> AudioStreamWAV:
+func build_radio_loop_stream(track_index: int = 0) -> AudioStreamWAV:
 	var duration := 24.0
 	var sample_count := int(AUDIO_MIX_RATE * duration)
 	var data := PackedByteArray()
@@ -3096,12 +3283,15 @@ func build_radio_loop_stream() -> AudioStreamWAV:
 	var phase_a := 0.0
 	var phase_b := 0.0
 	var phase_c := 0.0
-	var progression := [55.0, 82.41, 73.42, 98.0, 61.74, 92.5, 82.41, 110.0]
-	var accent := [220.0, 246.94, 196.0, 164.81, 146.83, 196.0, 220.0, 174.61]
+	var tracks := get_radio_tracks()
+	var selected_track: Dictionary = tracks[clamp(track_index, 0, tracks.size() - 1)]
+	var progression: Array = selected_track["progression"]
+	var accent: Array = selected_track["accent"]
+	var pulse_rate: float = selected_track["pulse"]
 	for i in range(sample_count):
 		var t := float(i) / AUDIO_MIX_RATE
-		var chord_index := int(floor(t / 3.0)) % progression.size()
-		var beat_phase := fmod(t, 0.75) / 0.75
+		var chord_index := int(floor(t / 3.2)) % progression.size()
+		var beat_phase := fmod(t, 0.8) / 0.8
 		var low_freq: float = progression[chord_index]
 		var high_freq: float = accent[chord_index]
 		phase_a += TAU * low_freq / AUDIO_MIX_RATE
@@ -3110,7 +3300,7 @@ func build_radio_loop_stream() -> AudioStreamWAV:
 		var drone := sin(phase_a) * 0.18 + sin(phase_b) * 0.09
 		var shimmer_gate := pow(max(0.0, sin(beat_phase * PI)), 3.0)
 		var shimmer := sin(phase_c) * shimmer_gate * 0.04
-		var pulse := sin(t * TAU * 0.13) * 0.02
+		var pulse := sin(t * TAU * pulse_rate) * 0.02
 		write_pcm16_sample(data, i, clamp(drone + shimmer + pulse, -0.55, 0.55))
 	var stream := create_wav_stream(data)
 	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
@@ -3484,18 +3674,30 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	var margin := 14.0 if viewport_size.x <= PHONE_LAYOUT_BREAKPOINT else 22.0
 	var compact := viewport_size.x <= PHONE_LAYOUT_BREAKPOINT
 	var side_width: float = min(256.0, max(172.0, viewport_size.x * (0.44 if compact else 0.22)))
+	var attitude_size: float = min(176.0, max(136.0, viewport_size.x * (0.16 if compact else 0.1)))
 	var side_height := 166.0 if compact else 214.0
 	var bottom_margin := 14.0 if compact else 22.0
-	var top_height := 176.0 if compact else 228.0
-	var top_width: float = min(viewport_size.x - margin * 2.0, 560.0 if compact else 500.0)
+	var top_height := 76.0 if compact else 84.0
+	var top_width: float = min(viewport_size.x - margin * 2.0 - 112.0, 640.0 if compact else 560.0)
 	top_frame.offset_left = -top_width * 0.5
 	top_frame.offset_right = top_width * 0.5
 	top_frame.offset_top = margin
 	top_frame.offset_bottom = margin + top_height
-	attitude_display.offset_left = -72.0 if compact else -78.0
-	attitude_display.offset_right = 72.0 if compact else 78.0
-	attitude_display.offset_top = 54.0 if compact else 50.0
-	attitude_display.offset_bottom = 198.0 if compact else 206.0
+	alert_value.offset_left = 18.0
+	alert_value.offset_right = top_width - 18.0
+	hit_value.offset_left = 18.0
+	hit_value.offset_right = top_width - 18.0
+	attitude_frame.offset_left = margin
+	attitude_frame.offset_top = margin + 52.0
+	attitude_frame.offset_right = margin + attitude_size
+	attitude_frame.offset_bottom = margin + 52.0 + attitude_size
+	var viewport_pixels := int(round(attitude_size * 1.45))
+	attitude_viewport.size = Vector2i(viewport_pixels, viewport_pixels)
+	var attitude_half: float = attitude_size * 0.495
+	attitude_display.offset_left = -attitude_half
+	attitude_display.offset_top = -attitude_half
+	attitude_display.offset_right = attitude_half
+	attitude_display.offset_bottom = attitude_half
 	left_frame.offset_left = margin
 	left_frame.offset_right = margin + side_width
 	left_frame.offset_top = -side_height - bottom_margin
@@ -3504,11 +3706,15 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	right_frame.offset_right = -margin
 	right_frame.offset_top = -side_height - bottom_margin
 	right_frame.offset_bottom = -bottom_margin
-	var message_width: float = viewport_size.x - margin * 2.0 - (0.0 if compact else side_width * 0.18)
+	var message_width: float = min(viewport_size.x - margin * 2.0 - (0.0 if compact else side_width * 1.8), 720.0 if not compact else viewport_size.x - margin * 2.0)
 	message_frame.offset_left = -message_width * 0.5
 	message_frame.offset_right = message_width * 0.5
 	message_frame.offset_top = -(86.0 if compact else 92.0)
 	message_frame.offset_bottom = -(18.0 if compact else 24.0)
+	message_value.offset_left = 18.0
+	message_value.offset_right = message_width - 18.0
+	message_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	message_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	debug_save_defaults_button.offset_left = -120.0
 	debug_save_defaults_button.offset_right = -72.0
 	debug_save_defaults_button.offset_top = margin
@@ -3523,7 +3729,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	settings_panel.offset_left = margin if compact else -settings_width - 24.0
 	settings_panel.offset_right = -margin if compact else -24.0
 	settings_panel.offset_top = margin
-	settings_panel.offset_bottom = min(viewport_size.y - margin, 746.0 if not compact else viewport_size.y - margin)
+	settings_panel.offset_bottom = min(viewport_size.y - margin, 852.0 if not compact else viewport_size.y - margin)
 	if compact:
 		cockpit_overlay.scale = Vector2(0.82, 0.82)
 	else:

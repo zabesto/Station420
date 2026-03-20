@@ -117,54 +117,63 @@ anchor_right = 0.5
 offset_left = -220.0
 offset_top = 18.0
 offset_right = 220.0
-offset_bottom = 228.0
+offset_bottom = 84.0
 clip_contents = true
 
 [node name="AlertValue" type="Label" parent="CanvasLayer/HUD/TopFrame"]
 offset_left = 22.0
-offset_top = 8.0
+offset_top = 10.0
 offset_right = 418.0
-offset_bottom = 28.0
+offset_bottom = 32.0
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 13
 text = ""
 
 [node name="HitValue" type="Label" parent="CanvasLayer/HUD/TopFrame"]
 offset_left = 22.0
-offset_top = 30.0
+offset_top = 36.0
 offset_right = 418.0
-offset_bottom = 46.0
+offset_bottom = 58.0
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 10
 text = ""
 
-[node name="AttitudeViewport" type="SubViewport" parent="CanvasLayer/HUD/TopFrame"]
+[node name="AttitudeFrame" type="Panel" parent="CanvasLayer/HUD"]
+offset_left = 22.0
+offset_top = 62.0
+offset_right = 198.0
+offset_bottom = 238.0
+clip_contents = true
+
+[node name="AttitudeViewport" type="SubViewport" parent="CanvasLayer/HUD/AttitudeFrame"]
 size = Vector2i(156, 156)
 transparent_bg = true
 handle_input_locally = false
 render_target_update_mode = 4
 
-[node name="AttitudeCamera" type="Camera3D" parent="CanvasLayer/HUD/TopFrame/AttitudeViewport"]
+[node name="AttitudeCamera" type="Camera3D" parent="CanvasLayer/HUD/AttitudeFrame/AttitudeViewport"]
 position = Vector3(0, 0, 8.8)
 current = true
 
-[node name="AttitudeRoot" type="Node3D" parent="CanvasLayer/HUD/TopFrame/AttitudeViewport"]
+[node name="AttitudeRoot" type="Node3D" parent="CanvasLayer/HUD/AttitudeFrame/AttitudeViewport"]
 
-[node name="AttitudeBall" type="MeshInstance3D" parent="CanvasLayer/HUD/TopFrame/AttitudeViewport/AttitudeRoot"]
+[node name="AttitudeBall" type="MeshInstance3D" parent="CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot"]
 
-[node name="AttitudeNeedle" type="MeshInstance3D" parent="CanvasLayer/HUD/TopFrame/AttitudeViewport/AttitudeRoot"]
+[node name="AttitudeNeedle" type="MeshInstance3D" parent="CanvasLayer/HUD/AttitudeFrame/AttitudeViewport/AttitudeRoot"]
 
-[node name="AttitudeLight" type="DirectionalLight3D" parent="CanvasLayer/HUD/TopFrame/AttitudeViewport"]
+[node name="AttitudeLight" type="DirectionalLight3D" parent="CanvasLayer/HUD/AttitudeFrame/AttitudeViewport"]
 light_energy = 1.8
 rotation = Vector3(-0.7, 0.9, 0)
 
-[node name="AttitudeDisplay" type="TextureRect" parent="CanvasLayer/HUD/TopFrame"]
+[node name="AttitudeDisplay" type="TextureRect" parent="CanvasLayer/HUD/AttitudeFrame"]
 anchor_left = 0.5
+anchor_top = 0.5
 anchor_right = 0.5
+anchor_bottom = 0.5
 offset_left = -78.0
-offset_top = 50.0
+offset_top = -78.0
 offset_right = 78.0
-offset_bottom = 206.0
+offset_bottom = 78.0
 expand_mode = 1
 stretch_mode = 5
 
@@ -271,11 +280,21 @@ text = "TAC"
 offset_left = 16.0
 offset_top = 42.0
 offset_right = 234.0
-offset_bottom = 192.0
+offset_bottom = 176.0
 autowrap_mode = 2
 clip_text = true
 theme_override_font_sizes/font_size = 11
 text = "◎"
+
+[node name="BuildValue" type="Label" parent="CanvasLayer/HUD/RightFrame"]
+offset_left = 16.0
+offset_top = 180.0
+offset_right = 234.0
+offset_bottom = 204.0
+horizontal_alignment = 2
+vertical_alignment = 2
+theme_override_font_sizes/font_size = 9
+text = "DBG"
 
 [node name="MessageFrame" type="Panel" parent="CanvasLayer/HUD"]
 anchor_left = 0.5
@@ -645,7 +664,7 @@ anchor_bottom = 0.0
 offset_left = -364.0
 offset_top = 18.0
 offset_right = -24.0
-offset_bottom = 746.0
+offset_bottom = 852.0
 clip_contents = true
 
 [node name="SettingsTitle" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
@@ -822,82 +841,105 @@ offset_top = 446.0
 offset_right = 248.0
 offset_bottom = 470.0
 theme_override_font_sizes/font_size = 13
-text = "Edge Threshold:"
+text = "Shader:"
 
-[node name="EdgeThresholdSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
+[node name="ShaderModeOption" type="OptionButton" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
 offset_top = 472.0
 offset_right = 320.0
-offset_bottom = 488.0
-min_value = 5.0
-max_value = 35.0
-value = 16.0
+offset_bottom = 504.0
+
+[node name="EdgeThresholdSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 546.0
+offset_right = 320.0
+offset_bottom = 562.0
+min_value = 0.0
+max_value = 100.0
+value = 70.0
 
 [node name="EdgeStrengthValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 502.0
+offset_top = 520.0
 offset_right = 248.0
-offset_bottom = 526.0
+offset_bottom = 544.0
 theme_override_font_sizes/font_size = 13
-text = "Edge Strength:"
+text = "Intensity:"
 
 [node name="EdgeStrengthSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 528.0
+offset_top = 620.0
 offset_right = 320.0
-offset_bottom = 544.0
-min_value = 50.0
-max_value = 200.0
-value = 100.0
+offset_bottom = 636.0
+min_value = 0.0
+max_value = 100.0
+value = 48.0
 
 [node name="EdgeGlowValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 558.0
+offset_top = 594.0
 offset_right = 248.0
-offset_bottom = 582.0
+offset_bottom = 618.0
 theme_override_font_sizes/font_size = 13
-text = "Edge Glow:"
+text = "Detail:"
 
 [node name="EdgeGlowSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 584.0
+offset_top = 694.0
 offset_right = 320.0
-offset_bottom = 600.0
-min_value = 50.0
-max_value = 200.0
-value = 100.0
+offset_bottom = 710.0
+min_value = 0.0
+max_value = 100.0
+value = 58.0
 
 [node name="BlurAmountValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 614.0
+offset_top = 668.0
 offset_right = 248.0
-offset_bottom = 638.0
+offset_bottom = 692.0
 theme_override_font_sizes/font_size = 13
-text = "Fog Amount:"
+text = "Wire Glow:"
 
 [node name="BlurAmountSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 640.0
+offset_top = 768.0
 offset_right = 320.0
-offset_bottom = 656.0
-min_value = 50.0
-max_value = 220.0
+offset_bottom = 784.0
+min_value = 0.0
+max_value = 100.0
 value = 100.0
+
+[node name="ShaderAuxValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 742.0
+offset_right = 248.0
+offset_bottom = 766.0
+theme_override_font_sizes/font_size = 13
+text = "Aux Mix:"
+
+[node name="ShaderAuxSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
+offset_left = 18.0
+offset_top = 794.0
+offset_right = 320.0
+offset_bottom = 810.0
+min_value = 0.0
+max_value = 100.0
+value = 35.0
 
 [node name="SettingsHint" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 674.0
+offset_top = 816.0
 offset_right = 320.0
-offset_bottom = 700.0
+offset_bottom = 838.0
 theme_override_font_sizes/font_size = 11
 clip_text = true
 text = "Click buttons or use H / Back to close"
 
 [node name="SettingsHotkeys" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
-offset_top = 704.0
+offset_top = 840.0
 offset_right = 320.0
-offset_bottom = 740.0
+offset_bottom = 874.0
 autowrap_mode = 2
 clip_text = true
 theme_override_font_sizes/font_size = 10

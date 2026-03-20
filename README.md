@@ -1,41 +1,106 @@
 # Station420: Get Dusted
 
-Small Godot 4 example project. Fly a wireframe ship through a starfield, approach orbital stations, and press `E` to dock.
+Arcade spaceflight prototype in Godot 4.6 with wireframe and shaded render modes, cockpit/chase cameras, procedural radio music, shader presets, and a web export path.
 
 ## Open
 
-1. Open Godot.
+1. Open Godot 4.6.
 2. Import `/Users/djcarter/Documents/code/godot/Station420/project.godot`.
 3. Run the project.
 
-## Web Export
+Headless validation:
 
-1. Use the `Web` preset in `Project -> Export`, or run:
-   `godot --headless --path /Users/djcarter/Documents/code/godot/Station420 --export-release Web build/web/index.html`
-2. Serve the `build/web` folder from a web server.
-3. Open `http://127.0.0.1:8000` or your deployed URL in a browser.
+```bash
+godot --headless --path /Users/djcarter/Documents/code/godot/Station420 --quit
+```
 
-## Cloudflare
+## Web Preview
 
-Cloudflare Workers Static Assets rejects individual files larger than 25 MiB. The exported `build/web/index.wasm` is therefore checked in as a gzip-compressed file. The exported HTML inflates that file in the browser before Godot instantiates it.
+Re-export and serve the current web build:
 
-If you re-export the web build, recompress the WebAssembly before committing:
+```bash
+cd /Users/djcarter/Documents/code/godot/Station420
+./preview-web.command
+```
 
-`gzip -9 -c build/web/index.wasm > build/web/index.wasm.gz && mv build/web/index.wasm.gz build/web/index.wasm`
+Then open:
 
-For local testing you can serve the exported files with:
+```text
+http://127.0.0.1:8000
+```
 
-`python3 -m http.server 8000 --directory build/web`
+Export only:
 
-## Files
+```bash
+./export-web.command
+```
 
-- `project.godot`: project settings and startup scene
-- `scenes/main.tscn`: 3D scene, camera, and HUD
-- `scripts/main.gd`: starfield, station generation, and docking logic
-- `scripts/player.gd`: 3D ship movement and wireframe mesh creation
+## Main Controls
 
-## Controls
+- `W A S D`: translate ship
+- `R / F`: move up / down
+- `Q / E`: roll ship
+- `Space` or controller `A`: fire
+- `E`: dock when in range
+- `Tab`: cycle `Orbit / Chase / Cockpit`
+- `V`: reset camera view
+- `\`: toggle `Wireframe / Shaded`
+- `H`: open settings / shader lab
+- `J` or controller `D-pad Right`: toggle autopilot
+- `T`: toggle trail
+- `G`: toggle guidance line
+- `B`: toggle bloom
+- `P`: toggle `Game / Real` flight mode
+- `C`: hail local comms
+- `Esc`: pause
 
-- `W`, `A`, `S`, `D`: move
-- `R` and `F`: rise and descend
-- `E`: dock when you are close to a station
+## Controller
+
+- Left stick: steer / pitch ship
+- Right stick: camera look
+- Right trigger: main thrust
+- Left trigger: reverse thrust
+- `Y`: cycle camera views
+- `B`: toggle render mode
+- `R3`: reset view
+- `D-pad Right`: autopilot
+- `D-pad Down`: trail
+- `L3`: guidance
+- `Back`: settings
+- `Start`: pause
+
+## Shader Lab
+
+Open settings with `H` and use the shader dropdown to try:
+
+- `PBR Lite`
+- `Neon Edge`
+- `Cartoon`
+- `Glass`
+- `Blur`
+- `ASCII`
+- `Metal Scan`
+
+The panel exposes:
+
+- `Intensity`
+- `Detail`
+- `Wire Intensity`
+- `Aux Mix`
+
+Visual presets still cycle with keyboard `1-4` or controller `LB / RB`.
+
+## Project Layout
+
+- `scenes/main.tscn`: main scene, HUD, and camera setup
+- `scripts/main.gd`: world generation, HUD logic, shaders, audio, AI, autopilot
+- `scripts/player.gd`: ship movement, cockpit visuals, thrusters, trail
+- `shaders/edge_pass.gdshader`: fullscreen shader lab post-process
+- `shaders/attitude_ball.gdshader`: navball / gyro instrument shader
+- `shaders/overlay_fog.gdshader`: overlay shader used behind modal screens
+
+## Notes
+
+- Project version is currently `0.4.0-dev`.
+- The game includes a checked-in `build/web` export for local preview.
+- There is still a shutdown-time Godot warning about leaked `ObjectDB` instances that has not been fully resolved yet.
