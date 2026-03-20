@@ -1,5 +1,7 @@
 extends Node3D
 
+const BuildInfo = preload("res://scripts/build_info.gd")
+
 const SYSTEM_SCALE := 35.0
 const STATION_SCALE := 8.0
 const DESTROYER_SCALE := 3.4
@@ -21,6 +23,7 @@ const CHASE_PITCH_TARGET := -0.14
 const PHONE_LAYOUT_BREAKPOINT := 760.0
 const PORTRAIT_LAYOUT_BREAKPOINT := 1.05
 const SHOW_DEBUG_SAVE_BUTTON := false
+const VISUAL_PRESET_COUNT := 5
 const CINEMATIC_IDLE_DELAY := 60.0
 const CINEMATIC_BLEND_IN_SPEED := 0.42
 const CINEMATIC_BLEND_OUT_SPEED := 1.8
@@ -970,10 +973,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				toggle_settings_panel()
 			return
 		if event.button_index == JOY_BUTTON_LEFT_SHOULDER:
-			set_visual_preset((visual_preset_index + 3) % 4)
+			set_visual_preset((visual_preset_index + VISUAL_PRESET_COUNT - 1) % VISUAL_PRESET_COUNT)
 			return
 		if event.button_index == JOY_BUTTON_RIGHT_SHOULDER:
-			set_visual_preset((visual_preset_index + 1) % 4)
+			set_visual_preset((visual_preset_index + 1) % VISUAL_PRESET_COUNT)
 			return
 		if event.button_index == JOY_BUTTON_DPAD_UP:
 			if nearby_station:
@@ -1052,6 +1055,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.keycode == KEY_4:
 			set_visual_preset(3)
+			return
+		if event.keycode == KEY_5:
+			set_visual_preset(4)
 			return
 		if event.keycode == KEY_B:
 			toggle_bloom()
@@ -2324,12 +2330,14 @@ func get_preset_name(index: int) -> String:
 			return "Toon Combat"
 		3:
 			return "Hologram Drift"
+		4:
+			return "Cobalt Neon"
 		_:
 			return "Deep Space"
 
 
 func set_visual_preset(index: int) -> void:
-	visual_preset_index = clamp(index, 0, 3)
+	visual_preset_index = clamp(index, 0, VISUAL_PRESET_COUNT - 1)
 	apply_visual_preset()
 
 
@@ -2368,6 +2376,13 @@ func apply_visual_preset() -> void:
 			environment.ambient_light_energy = 0.5
 			environment.fog_enabled = false
 			environment.fog_light_color = Color(0.1, 0.66, 0.62)
+			environment.fog_density = 0.0
+		4:
+			environment.background_color = Color(0.004, 0.03, 0.08)
+			environment.ambient_light_color = Color(0.4, 0.74, 1.0)
+			environment.ambient_light_energy = 0.56
+			environment.fog_enabled = false
+			environment.fog_light_color = Color(0.08, 0.4, 0.92)
 			environment.fog_density = 0.0
 		_:
 			environment.background_color = Color(0.005, 0.008, 0.014)
@@ -2409,6 +2424,9 @@ func update_edge_pass_theme() -> void:
 		3:
 			tint = Color(0.34, 1.0, 0.86)
 			halo_radius = 2.3
+		4:
+			tint = Color(0.38, 0.76, 1.0)
+			halo_radius = 2.22
 		_:
 			tint = Color(0.84, 0.92, 1.0)
 			halo_radius = 1.95
@@ -2438,6 +2456,8 @@ func update_blur_pass_theme() -> void:
 			tint = Color(0.22, 0.15, 0.08, 0.08)
 		3:
 			tint = Color(0.05, 0.22, 0.18, 0.1)
+		4:
+			tint = Color(0.04, 0.14, 0.32, 0.1)
 		_:
 			tint = Color(0.08, 0.12, 0.2, 0.08)
 	blur_material.set_shader_parameter("fog_density", blur_strength_scale * 0.35)
@@ -2526,6 +2546,8 @@ func build_style_material(role: String, base_color: Color, render_variant: Strin
 				line_boost = 1.55
 			3:
 				line_boost = 2.0
+			4:
+				line_boost = 1.82
 			_:
 				line_boost = 1.42
 		material.emission = color * line_boost
@@ -2563,6 +2585,14 @@ func resolve_style_color(role: String, base_color: Color) -> Color:
 			if role == "lane":
 				return base_color.lerp(Color(0.48, 1.0, 0.94, base_color.a), 0.18)
 			return base_color.lerp(Color(0.26, 1.0, 0.86), 0.5)
+		4:
+			if role in ["enemy", "danger", "alert"]:
+				return Color(1.0, 0.54, 0.4)
+			if role in ["target", "objective", "dock"]:
+				return Color(0.54, 0.84, 1.0)
+			if role == "lane":
+				return base_color.lerp(Color(0.46, 0.76, 1.0, base_color.a), 0.18)
+			return base_color.lerp(Color(0.42, 0.72, 1.0), 0.26)
 		_:
 			if role in ["enemy", "danger", "alert"]:
 				return Color(1.0, 0.4, 0.32)
@@ -2622,6 +2652,10 @@ func apply_hud_style() -> void:
 			hud_color = Color(0.68, 1.0, 0.9)
 			accent_color = Color(0.32, 1.0, 0.82)
 			alert_color = Color(1.0, 0.45, 0.54)
+		4:
+			hud_color = Color(0.78, 0.9, 1.0)
+			accent_color = Color(0.4, 0.72, 1.0)
+			alert_color = Color(1.0, 0.58, 0.44)
 		_:
 			hud_color = Color(0.84, 0.9, 1.0)
 			accent_color = Color(0.96, 0.98, 1.0)
@@ -2843,11 +2877,11 @@ func make_button_stylebox(background: Color, border: Color) -> StyleBoxFlat:
 
 
 func _on_preset_prev_pressed() -> void:
-	set_visual_preset((visual_preset_index + 3) % 4)
+	set_visual_preset((visual_preset_index + VISUAL_PRESET_COUNT - 1) % VISUAL_PRESET_COUNT)
 
 
 func _on_preset_next_pressed() -> void:
-	set_visual_preset((visual_preset_index + 1) % 4)
+	set_visual_preset((visual_preset_index + 1) % VISUAL_PRESET_COUNT)
 
 
 func _on_render_mode_pressed() -> void:
@@ -2978,7 +3012,7 @@ func update_settings_label() -> void:
 	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
 	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
 	settings_hint.text = "Use Controls for keyboard and gamepad bindings. Press H or Back to close."
-	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-4 themes, mouse wheel zoom"
+	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-5 themes, mouse wheel zoom"
 	controls_keyboard_text.text = "W A S D  move\nR / F  rise / descend\nQ / E  roll / dock\nShift  boost\nSpace  fire\nTab  cycle camera\nV  reset view\nH  help/settings\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nEsc  pause"
 	controls_controller_text.text = "Left stick  steer / pitch\nRight stick  camera look\nRT / LT  thrust / reverse\nA  fire / launch\nY  cycle camera\nB  render mode\nX  cycle AP target\nR3  reset view\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nBack  help/settings\nStart  pause"
 	controls_hint.text = "Close with Esc, H, Back, or the Close button."
@@ -3043,6 +3077,7 @@ func toggle_pause() -> void:
 		title_label.text = "Paused"
 	else:
 		title_label.text = "Wireframe System"
+	update_camera(0.0)
 	update_mouse_mode()
 	update_touch_controls_visibility()
 
@@ -3502,10 +3537,11 @@ func update_combat_label() -> void:
 
 
 func update_build_label() -> void:
-	var version := str(ProjectSettings.get_setting("application/config/version", "0.0-dev"))
+	var version := str(BuildInfo.BUILD_LABEL)
 	var runtime := "WEB" if OS.has_feature("web") else "DESKTOP"
 	var build_flavor := "DBG" if OS.has_feature("debug") else "REL"
-	build_value.text = "%s %s  v%s" % [runtime, build_flavor, version]
+	var build_number := str(BuildInfo.BUILD_NUMBER)
+	build_value.text = "%s %s  %s\nbuild %s" % [runtime, build_flavor, version, build_number]
 
 
 func update_player_combat(delta: float) -> void:

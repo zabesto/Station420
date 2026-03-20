@@ -10,6 +10,7 @@ mkdir -p "$EXPORT_DIR"
 mkdir -p "$CF_DIR"
 
 cd "$PROJECT_DIR"
+python3 "$PROJECT_DIR/scripts/write_build_info.py" "$PROJECT_DIR"
 godot --headless --path "$PROJECT_DIR" --export-debug Web "$EXPORT_DIR/index.html"
 python3 "$PROJECT_DIR/scripts/patch_web_shell.py" "$EXPORT_DIR/index.html"
 
