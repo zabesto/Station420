@@ -79,9 +79,34 @@ void fragment() {
 		float glyph = step(0.2, tone) + step(0.4, tone) + step(0.6, tone) + step(0.8, tone);
 		vec3 ascii_color = mix(vec3(0.02, 0.03, 0.04), edge_tint * 0.95, glyph / 4.0);
 		final_color = mix(scene, ascii_color, 0.78) + edge_color * 0.22;
-	} else {
+	} else if (effect_mode == 6) {
 		vec3 cold = mix(scene, vec3(luminance(scene)) * edge_tint, 0.52 + aux_mix * 0.18);
 		final_color = cold + edge_color * 0.55;
+	} else if (effect_mode == 7) {
+		vec2 centered_uv = SCREEN_UV * 2.0 - 1.0;
+		float vignette = clamp(1.0 - dot(centered_uv * 0.82, centered_uv * 0.82), 0.0, 1.0);
+		float scanline = 0.9 + sin((SCREEN_UV.y / max(px.y, 0.00001)) * 0.85) * 0.08;
+		float grille = 0.94 + sin((SCREEN_UV.x / max(px.x, 0.00001)) * 1.05) * 0.05;
+		vec3 crt = scene * scanline * grille * mix(0.72, 1.0, vignette);
+		final_color = crt + edge_color * 0.18;
+	} else if (effect_mode == 8) {
+		float tone = luminance(scene);
+		float grain = fract(sin(dot(floor(SCREEN_UV / max(px * 2.0, vec2(0.00001))), vec2(127.1, 311.7))) * 43758.5453123);
+		vec3 night = mix(vec3(0.01, 0.02, 0.01), vec3(0.22, 0.96, 0.32), tone);
+		final_color = night * (0.82 + grain * 0.18) + edge_color * 0.16;
+	} else if (effect_mode == 9) {
+		float heat = luminance(scene);
+		vec3 thermal = mix(vec3(0.04, 0.02, 0.12), vec3(0.26, 0.08, 0.56), smoothstep(0.0, 0.22, heat));
+		thermal = mix(thermal, vec3(0.96, 0.22, 0.12), smoothstep(0.2, 0.62, heat));
+		thermal = mix(thermal, vec3(1.0, 0.92, 0.62), smoothstep(0.58, 1.0, heat));
+		final_color = thermal + edge_color * 0.12;
+	} else {
+		float tone = luminance(scene);
+		vec2 grid_uv = abs(fract(SCREEN_UV * mix(48.0, 120.0, 1.0 - aux_mix)) - 0.5);
+		float grid = 1.0 - smoothstep(0.44, 0.5, min(grid_uv.x, grid_uv.y) * 2.0);
+		vec3 blueprint = mix(vec3(0.02, 0.04, 0.12), vec3(0.08, 0.2, 0.42), tone * 0.4);
+		vec3 line = mix(vec3(0.26, 0.86, 1.0), edge_tint, 0.35);
+		final_color = blueprint + line * (edge * 0.7 + grid * 0.18 + halo * 0.2);
 	}
 	COLOR = vec4(final_color, 1.0);
 }

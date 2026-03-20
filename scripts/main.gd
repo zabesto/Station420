@@ -196,6 +196,7 @@ const STATION_LAYOUT := [
 @onready var title_label: Label = $CanvasLayer/HUD/TitleLabel
 @onready var debug_save_defaults_button: Button = $CanvasLayer/HUD/DebugSaveDefaultsButton
 @onready var help_button: Button = $CanvasLayer/HUD/HelpButton
+@onready var settings_button: Button = $CanvasLayer/HUD/SettingsButton
 @onready var shader_button: Button = $CanvasLayer/HUD/ShaderButton
 @onready var fullscreen_button: Button = $CanvasLayer/HUD/FullscreenButton
 @onready var cinematic_top_bar: ColorRect = $CanvasLayer/HUD/CinematicTopBar
@@ -277,17 +278,6 @@ const STATION_LAYOUT := [
 @onready var invert_y_button: Button = $CanvasLayer/HUD/SettingsPanel/InvertYButton
 @onready var physics_mode_value: Label = $CanvasLayer/HUD/SettingsPanel/PhysicsModeValue
 @onready var physics_mode_button: Button = $CanvasLayer/HUD/SettingsPanel/PhysicsModeButton
-@onready var edge_threshold_value: Label = $CanvasLayer/HUD/SettingsPanel/EdgeThresholdValue
-@onready var shader_mode_option: OptionButton = $CanvasLayer/HUD/SettingsPanel/ShaderModeOption
-@onready var edge_threshold_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/EdgeThresholdSlider
-@onready var edge_strength_value: Label = $CanvasLayer/HUD/SettingsPanel/EdgeStrengthValue
-@onready var edge_strength_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/EdgeStrengthSlider
-@onready var edge_glow_value: Label = $CanvasLayer/HUD/SettingsPanel/EdgeGlowValue
-@onready var edge_glow_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/EdgeGlowSlider
-@onready var blur_amount_value: Label = $CanvasLayer/HUD/SettingsPanel/BlurAmountValue
-@onready var blur_amount_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/BlurAmountSlider
-@onready var shader_aux_value: Label = $CanvasLayer/HUD/SettingsPanel/ShaderAuxValue
-@onready var shader_aux_slider: HSlider = $CanvasLayer/HUD/SettingsPanel/ShaderAuxSlider
 @onready var settings_hint: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHint
 @onready var settings_hotkeys: Label = $CanvasLayer/HUD/SettingsPanel/SettingsHotkeys
 @onready var controls_panel: Panel = $CanvasLayer/HUD/ControlsPanel
@@ -307,6 +297,18 @@ const STATION_LAYOUT := [
 @onready var blur_fx_button: Button = $CanvasLayer/HUD/ShaderPanel/BlurFxButton
 @onready var attitude_shader_value: Label = $CanvasLayer/HUD/ShaderPanel/AttitudeShaderValue
 @onready var attitude_shader_button: Button = $CanvasLayer/HUD/ShaderPanel/AttitudeShaderButton
+@onready var edge_threshold_value: Label = $CanvasLayer/HUD/ShaderPanel/EdgeThresholdValue
+@onready var shader_mode_option: OptionButton = $CanvasLayer/HUD/ShaderPanel/ShaderModeOption
+@onready var edge_threshold_slider: HSlider = $CanvasLayer/HUD/ShaderPanel/EdgeThresholdSlider
+@onready var edge_strength_value: Label = $CanvasLayer/HUD/ShaderPanel/EdgeStrengthValue
+@onready var edge_strength_slider: HSlider = $CanvasLayer/HUD/ShaderPanel/EdgeStrengthSlider
+@onready var edge_glow_value: Label = $CanvasLayer/HUD/ShaderPanel/EdgeGlowValue
+@onready var edge_glow_slider: HSlider = $CanvasLayer/HUD/ShaderPanel/EdgeGlowSlider
+@onready var glow_amount_value: Label = $CanvasLayer/HUD/ShaderPanel/GlowAmountValue
+@onready var blur_amount_value: Label = $CanvasLayer/HUD/ShaderPanel/BlurAmountValue
+@onready var blur_amount_slider: HSlider = $CanvasLayer/HUD/ShaderPanel/BlurAmountSlider
+@onready var shader_aux_value: Label = $CanvasLayer/HUD/ShaderPanel/ShaderAuxValue
+@onready var shader_aux_slider: HSlider = $CanvasLayer/HUD/ShaderPanel/ShaderAuxSlider
 @onready var shader_hint: Label = $CanvasLayer/HUD/ShaderPanel/ShaderHint
 
 var nearby_station: Area3D = null
@@ -373,6 +375,8 @@ var boot_screen_time := 0.0
 var settings_visible := false
 var controls_visible := false
 var shader_panel_visible := false
+var help_panel_seen := false
+var help_panel_autoshow_timer := -1.0
 var settings_tab_index := 0
 var visual_preset_index := 0
 var shaded_mode := false
@@ -580,12 +584,12 @@ func _ready() -> void:
 	settings_tab_groups = [display_group, audio_group, flight_group, render_group]
 	settings_tab_buttons = [display_tab_button, audio_tab_button, flight_tab_button, render_tab_button]
 	settings_tab_page_controls = [
-		[preset_value, preset_prev_button, preset_next_button, render_mode_button, bloom_value, bloom_button],
+		[preset_value, preset_prev_button, preset_next_button],
 		[music_value, music_slider, music_button, sfx_value, sfx_slider, sfx_button],
 		[trail_value, trail_button, guidance_value, guidance_button, invert_y_value, invert_y_button, physics_mode_value, physics_mode_button],
-		[edge_threshold_value, shader_mode_option, edge_threshold_slider, edge_strength_value, edge_strength_slider, edge_glow_value, edge_glow_slider, blur_amount_value, blur_amount_slider, shader_aux_value, shader_aux_slider]
+		[render_mode_button, bloom_value, bloom_button]
 	]
-	utility_buttons = [fullscreen_button, help_button, inspector_button, shader_button, debug_save_defaults_button]
+	utility_buttons = [fullscreen_button, help_button, settings_button, inspector_button, shader_button, debug_save_defaults_button]
 	update_responsive_hud_layout(true)
 	update_window_controls()
 
@@ -642,6 +646,7 @@ func _exit_tree() -> void:
 
 func connect_settings_controls() -> void:
 	shader_button.pressed.connect(_on_shader_panel_pressed)
+	settings_button.pressed.connect(_on_settings_pressed)
 	controls_button.pressed.connect(_on_controls_pressed)
 	display_tab_button.pressed.connect(_on_display_tab_pressed)
 	audio_tab_button.pressed.connect(_on_audio_tab_pressed)
@@ -869,7 +874,11 @@ func populate_shader_mode_option() -> void:
 		"Glass",
 		"Blur",
 		"ASCII",
-		"Metal Scan"
+		"Metal Scan",
+		"CRT Grid",
+		"Night Vision",
+		"Thermal",
+		"Blueprint"
 	]:
 		shader_mode_option.add_item(name)
 	shader_mode_option.selected = clamp(shader_mode_index, 0, shader_mode_option.item_count - 1)
@@ -891,7 +900,25 @@ func update_shader_panel_labels() -> void:
 	blur_fx_button.text = "On" if blur_shader_enabled else "Off"
 	attitude_shader_value.text = "Attitude Ball: %s" % ("On" if attitude_shader_enabled else "Off")
 	attitude_shader_button.text = "On" if attitude_shader_enabled else "Off"
-	shader_hint.text = "Turn passes off if the image gets too heavy. Press Esc or Close to return."
+	edge_threshold_value.text = "Shader"
+	edge_strength_value.text = "Intensity: %d%%" % int(round(edge_threshold * 100.0))
+	edge_glow_value.text = "Detail: %d%%" % int(round(edge_strength_scale * 100.0))
+	glow_amount_value.text = "Glow: %d%%" % int(round(edge_glow_scale * 100.0))
+	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
+	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
+	if shader_mode_option.selected != shader_mode_index:
+		shader_mode_option.selected = shader_mode_index
+	if abs(edge_threshold_slider.value - edge_threshold * 100.0) > 0.5:
+		edge_threshold_slider.value = edge_threshold * 100.0
+	if abs(edge_strength_slider.value - edge_strength_scale * 100.0) > 0.5:
+		edge_strength_slider.value = edge_strength_scale * 100.0
+	if abs(edge_glow_slider.value - edge_glow_scale * 100.0) > 0.5:
+		edge_glow_slider.value = edge_glow_scale * 100.0
+	if abs(blur_amount_slider.value - wire_shader_scale * 100.0) > 0.5:
+		blur_amount_slider.value = wire_shader_scale * 100.0
+	if abs(shader_aux_slider.value - blur_strength_scale * 100.0) > 0.5:
+		shader_aux_slider.value = blur_strength_scale * 100.0
+	shader_hint.text = "Browse built-in and experimental screen modes here. Settings keeps gameplay; FX owns shader experiments."
 
 
 func set_settings_tab(index: int) -> void:
@@ -949,6 +976,7 @@ func load_saved_defaults() -> void:
 	sfx_enabled = bool(data.get("sfx_enabled", sfx_enabled))
 	music_volume = float(data.get("music_volume", music_volume))
 	sfx_volume = float(data.get("sfx_volume", sfx_volume))
+	help_panel_seen = bool(data.get("help_panel_seen", help_panel_seen))
 	invert_y_axis = bool(data.get("invert_y_axis", invert_y_axis))
 	flight_physics_mode = str(data.get("flight_physics_mode", flight_physics_mode))
 	shader_mode_index = int(data.get("shader_mode_index", shader_mode_index))
@@ -979,6 +1007,7 @@ func save_current_defaults() -> void:
 		"sfx_enabled": sfx_enabled,
 		"music_volume": music_volume,
 		"sfx_volume": sfx_volume,
+		"help_panel_seen": help_panel_seen,
 		"invert_y_axis": invert_y_axis,
 		"flight_physics_mode": flight_physics_mode,
 		"shader_mode_index": shader_mode_index,
@@ -1008,6 +1037,10 @@ func _on_debug_save_defaults_pressed() -> void:
 
 
 func _on_help_pressed() -> void:
+	toggle_controls_panel()
+
+
+func _on_settings_pressed() -> void:
 	toggle_settings_panel()
 
 
@@ -1119,6 +1152,7 @@ func _process(delta: float) -> void:
 	update_attitude_indicator()
 	update_touch_controls_visibility()
 	update_touch_player_input()
+	update_help_panel_autoshow(delta)
 	camera_manual_input_timer = max(camera_manual_input_timer - delta, 0.0)
 	update_pause_camera(delta)
 	update_idle_cinematic(delta)
@@ -1174,6 +1208,24 @@ func update_idle_cinematic(delta: float) -> void:
 	if cinematic_blend <= 0.001 and not cinematic_mode_active:
 		cinematic_time = 0.0
 	update_cinematic_overlay()
+
+
+func update_help_panel_autoshow(delta: float) -> void:
+	if help_panel_autoshow_timer < 0.0:
+		return
+	if paused or start_screen_active or game_over_state:
+		return
+	if settings_visible or controls_visible or shader_panel_visible or inspector_visible:
+		return
+	help_panel_autoshow_timer = max(help_panel_autoshow_timer - delta, 0.0)
+	if help_panel_autoshow_timer > 0.0:
+		return
+	help_panel_autoshow_timer = -1.0
+	if help_panel_seen:
+		return
+	help_panel_seen = true
+	toggle_controls_panel()
+	save_current_defaults()
 
 
 func update_cinematic_overlay() -> void:
@@ -1383,10 +1435,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if shader_panel_visible:
 			toggle_shader_panel()
 			return
-		if controls_visible:
-			toggle_controls_panel()
-		else:
-			toggle_settings_panel()
+		toggle_controls_panel()
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_BACKSLASH:
@@ -2664,6 +2713,7 @@ func update_overlay_button_visibility() -> void:
 	var show_utilities := not (settings_visible or controls_visible or shader_panel_visible or inspector_visible)
 	fullscreen_button.visible = show_utilities and not (touch_device_active and OS.has_feature("web"))
 	help_button.visible = show_utilities
+	settings_button.visible = show_utilities
 	shader_button.visible = show_utilities
 	if inspector_button != null:
 		inspector_button.visible = show_utilities
@@ -3438,6 +3488,7 @@ func apply_hud_style() -> void:
 	edge_threshold_value.modulate = hud_color
 	edge_strength_value.modulate = hud_color
 	edge_glow_value.modulate = hud_color
+	glow_amount_value.modulate = hud_color
 	blur_amount_value.modulate = hud_color
 	shader_aux_value.modulate = hud_color
 	settings_hint.modulate = accent_color
@@ -3496,6 +3547,7 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 		blur_fx_button,
 		attitude_shader_button,
 		help_button,
+		settings_button,
 		fullscreen_button,
 		display_tab_button,
 		audio_tab_button,
@@ -3777,11 +3829,6 @@ func update_settings_label() -> void:
 	guidance_value.text = "Guidance: %s" % ("On" if objective_guidance_enabled else "Off")
 	invert_y_value.text = "Invert Y: %s" % ("On" if invert_y_axis else "Off")
 	physics_mode_value.text = "Flight Mode: %s" % flight_physics_mode.capitalize()
-	edge_threshold_value.text = "Shader"
-	edge_strength_value.text = "Intensity: %d%%" % int(round(edge_threshold * 100.0))
-	edge_glow_value.text = "Detail: %d%%" % int(round(edge_strength_scale * 100.0))
-	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
-	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
 	preset_prev_button.text = "Prev"
 	preset_next_button.text = "Next"
 	render_mode_button.text = "Mode"
@@ -3792,27 +3839,16 @@ func update_settings_label() -> void:
 	guidance_button.text = "Toggle"
 	invert_y_button.text = "Toggle"
 	physics_mode_button.text = "Cycle"
-	settings_hint.text = "Use Controls for keyboard and gamepad bindings. Press H or Back to close."
+	settings_hint.text = "Use ? or H for controls help. Use FX for shader experiments."
 	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-7 themes, mouse wheel zoom"
-	controls_keyboard_text.text = "Flight\nArrow keys  steer / pitch\nW A S D  move\nR / F  rise / descend\nQ / Z  roll\nShift  boost\nSpace  fire\n\nView\nTab  cycle camera\nV  reset view\n\nSystems\nE  dock\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nH  help/settings\nEsc  pause"
-	controls_controller_text.text = "Flight\nLeft stick  steer / pitch\nRT / LT  thrust / reverse\nA  fire / launch\n\nView\nRight stick  camera look\nY  cycle camera\nR3  reset view\n\nSystems\nX  cycle AP target\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nB  render mode\nBack  help/settings\nStart  pause"
-	controls_hint.text = "Close with Esc, H, Back, or the Close button."
-	if shader_mode_option.selected != shader_mode_index:
-		shader_mode_option.selected = shader_mode_index
+	controls_keyboard_text.text = "Flight\nArrow keys  steer / pitch\nW A S D  move\nR / F  rise / descend\nQ / Z  roll\nShift  boost\nSpace  fire\n\nView\nTab  cycle camera\nV  reset view\n\nSystems\nE  dock\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nH / ?  controls\nEsc  pause"
+	controls_controller_text.text = "Flight\nLeft stick  steer / pitch\nRT / LT  thrust / reverse\nA  fire / launch\n\nView\nRight stick  camera look\nY  cycle camera\nR3  reset view\n\nSystems\nX  cycle AP target\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nB  render mode\nBack  controls/settings panels\nStart  pause"
+	controls_hint.text = "Close with Esc, H, ?, Back, or the Close button."
 	if abs(music_slider.value - music_volume * 100.0) > 0.5:
 		music_slider.value = music_volume * 100.0
 	if abs(sfx_slider.value - sfx_volume * 100.0) > 0.5:
 		sfx_slider.value = sfx_volume * 100.0
-	if abs(edge_threshold_slider.value - edge_threshold * 100.0) > 0.5:
-		edge_threshold_slider.value = edge_threshold * 100.0
-	if abs(edge_strength_slider.value - edge_strength_scale * 100.0) > 0.5:
-		edge_strength_slider.value = edge_strength_scale * 100.0
-	if abs(edge_glow_slider.value - edge_glow_scale * 100.0) > 0.5:
-		edge_glow_slider.value = edge_glow_scale * 100.0
-	if abs(blur_amount_slider.value - wire_shader_scale * 100.0) > 0.5:
-		blur_amount_slider.value = wire_shader_scale * 100.0
-	if abs(shader_aux_slider.value - blur_strength_scale * 100.0) > 0.5:
-		shader_aux_slider.value = blur_strength_scale * 100.0
+	update_shader_panel_labels()
 
 
 func update_hit_feedback(delta: float) -> void:
@@ -3831,6 +3867,10 @@ func show_hit_feedback(message: String) -> void:
 
 func start_run() -> void:
 	start_screen_active = false
+	if not help_panel_seen:
+		help_panel_autoshow_timer = 5.0
+	else:
+		help_panel_autoshow_timer = -1.0
 	start_card.visible = false
 	start_label.visible = false
 	start_sub_label.visible = false
@@ -3903,11 +3943,14 @@ func toggle_settings_panel() -> void:
 		update_settings_label()
 		settings_label_refresh_timer = 0.12
 	update_overlay_button_visibility()
-	update_mouse_mode()
+	call_deferred("refresh_mouse_mode_after_ui_toggle")
 	update_touch_controls_visibility()
 
 
 func toggle_controls_panel() -> void:
+	if settings_visible:
+		settings_visible = false
+		settings_panel.visible = false
 	if shader_panel_visible:
 		shader_panel_visible = false
 		shader_panel.visible = false
@@ -3915,13 +3958,10 @@ func toggle_controls_panel() -> void:
 		inspector_visible = false
 		if inspector_panel != null:
 			inspector_panel.visible = false
-	if not settings_visible:
-		settings_visible = true
-		settings_panel.visible = true
 	controls_visible = not controls_visible
 	controls_panel.visible = controls_visible
 	update_overlay_button_visibility()
-	update_mouse_mode()
+	call_deferred("refresh_mouse_mode_after_ui_toggle")
 	update_touch_controls_visibility()
 
 
@@ -3936,7 +3976,7 @@ func toggle_shader_panel() -> void:
 	shader_panel_visible = not shader_panel_visible
 	shader_panel.visible = shader_panel_visible
 	update_overlay_button_visibility()
-	update_mouse_mode()
+	call_deferred("refresh_mouse_mode_after_ui_toggle")
 	update_touch_controls_visibility()
 
 
@@ -3953,7 +3993,7 @@ func toggle_inspector_panel() -> void:
 	if inspector_visible:
 		update_inspector_panel_labels()
 	update_overlay_button_visibility()
-	update_mouse_mode()
+	call_deferred("refresh_mouse_mode_after_ui_toggle")
 	update_touch_controls_visibility()
 
 
@@ -4295,6 +4335,14 @@ func update_mouse_mode() -> void:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		return
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+
+func refresh_mouse_mode_after_ui_toggle() -> void:
+	update_mouse_mode()
+	if DisplayServer.get_name() == "headless":
+		return
+	if paused or start_screen_active or settings_visible or controls_visible or shader_panel_visible or inspector_visible or touch_phone_layout_active:
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 
 func get_camera_mode_name() -> String:
@@ -5877,7 +5925,7 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 	settings_y += row_height + (8.0 if compact else 10.0)
 
 	var group_top := settings_y
-	var display_height := section_padding + title_height + 8.0 + 26.0 + row_gap + row_height + row_gap + row_height + section_padding
+	var display_height := section_padding + title_height + 8.0 + 26.0 + row_gap + row_height + section_padding
 	display_group.offset_left = padding
 	display_group.offset_top = group_top
 	display_group.offset_right = padding + group_width
@@ -5904,15 +5952,6 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 	render_mode_button.offset_top = display_row_y
 	render_mode_button.offset_right = padding + group_width - section_padding
 	render_mode_button.offset_bottom = display_row_y + row_height
-	display_row_y += row_height + row_gap
-	bloom_value.offset_left = padding + section_padding
-	bloom_value.offset_top = display_row_y + 3.0
-	bloom_value.offset_right = padding + section_padding + label_width
-	bloom_value.offset_bottom = display_row_y + 27.0
-	bloom_button.offset_left = padding + group_width - section_padding - button_width
-	bloom_button.offset_top = display_row_y
-	bloom_button.offset_right = padding + group_width - section_padding
-	bloom_button.offset_bottom = display_row_y + row_height
 	var display_end := group_top + display_height
 
 	var audio_height := section_padding + title_height + 8.0 + 2.0 * (24.0 + 20.0 + row_gap) + section_padding - 4.0
@@ -5983,7 +6022,7 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 		flight_row_y += row_height + row_gap
 	var flight_end := group_top + flight_height
 
-	var render_height := section_padding + title_height + 8.0 + 30.0 + row_gap + 4.0 * (24.0 + 20.0 + row_gap) + section_padding
+	var render_height := section_padding + title_height + 8.0 + 2.0 * (row_height + row_gap) + section_padding - row_gap
 	render_group.offset_left = padding
 	render_group.offset_top = group_top
 	render_group.offset_right = padding + group_width
@@ -5993,34 +6032,20 @@ func layout_settings_panel_content(settings_width: float, compact: bool, is_phon
 	render_group_title.offset_right = group_width - section_padding
 	render_group_title.offset_bottom = 30.0
 	var render_row_y := group_top + section_padding + title_height + 8.0
-	edge_threshold_value.offset_left = padding + section_padding
-	edge_threshold_value.offset_top = render_row_y
-	edge_threshold_value.offset_right = padding + group_width - section_padding
-	edge_threshold_value.offset_bottom = render_row_y + 24.0
-	render_row_y += 26.0
-	shader_mode_option.offset_left = padding + section_padding
-	shader_mode_option.offset_top = render_row_y
-	shader_mode_option.offset_right = padding + group_width - section_padding
-	shader_mode_option.offset_bottom = render_row_y + 32.0
-	render_row_y += 44.0
-	for pair in [
-		[edge_strength_value, edge_threshold_slider],
-		[edge_glow_value, edge_strength_slider],
-		[blur_amount_value, blur_amount_slider],
-		[shader_aux_value, shader_aux_slider]
-	]:
-		var text_label := pair[0] as Control
-		var slider := pair[1] as Control
-		text_label.offset_left = padding + section_padding
-		text_label.offset_top = render_row_y
-		text_label.offset_right = padding + group_width - section_padding
-		text_label.offset_bottom = render_row_y + 24.0
-		render_row_y += 26.0
-		slider.offset_left = padding + section_padding
-		slider.offset_top = render_row_y
-		slider.offset_right = padding + group_width - section_padding
-		slider.offset_bottom = render_row_y + slider_height
-		render_row_y += 30.0
+	render_mode_button.offset_left = padding + group_width - section_padding - button_width
+	render_mode_button.offset_top = render_row_y
+	render_mode_button.offset_right = padding + group_width - section_padding
+	render_mode_button.offset_bottom = render_row_y + row_height
+	bloom_value.offset_left = padding + section_padding
+	bloom_value.offset_top = render_row_y + row_height + row_gap + 3.0
+	bloom_value.offset_right = padding + section_padding + label_width
+	bloom_value.offset_bottom = render_row_y + row_height + row_gap + 27.0
+	bloom_button.offset_left = padding + group_width - section_padding - button_width
+	bloom_button.offset_top = render_row_y + row_height + row_gap
+	bloom_button.offset_right = padding + group_width - section_padding
+	bloom_button.offset_bottom = render_row_y + row_height + row_gap + row_height
+	render_group_title.text = "Render"
+	render_group_title.tooltip_text = "General rendering settings. Use FX for shader experiments."
 	var render_end := group_top + render_height
 
 	var active_end := display_end
@@ -6161,8 +6186,8 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	var settings_content_height := layout_settings_panel_content(settings_width, compact, is_phone_portrait)
 	var settings_height: float = min(viewport_size.y - margin * 2.0, settings_content_height)
 	settings_panel.offset_bottom = margin + settings_height
-	var shader_panel_width: float = min(viewport_size.x - margin * 2.0, 420.0 if not compact else viewport_size.x - margin * 2.0)
-	var shader_panel_height: float = min(viewport_size.y - margin * 2.0, 340.0 if is_phone_portrait else 252.0)
+	var shader_panel_width: float = min(viewport_size.x - margin * 2.0, 440.0 if not compact else viewport_size.x - margin * 2.0)
+	var shader_panel_height: float = min(viewport_size.y - margin * 2.0, 620.0 if is_phone_portrait else 576.0)
 	shader_panel.offset_left = -shader_panel_width * 0.5
 	shader_panel.offset_right = shader_panel_width * 0.5
 	shader_panel.offset_top = -shader_panel_height * 0.5
@@ -6178,7 +6203,58 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	attitude_shader_value.offset_right = shader_panel_width - 126.0
 	attitude_shader_button.offset_left = shader_panel_width - 124.0
 	attitude_shader_button.offset_right = shader_panel_width - 20.0
+	edge_threshold_value.offset_left = 18.0
+	edge_threshold_value.offset_right = shader_panel_width - 20.0
+	shader_mode_option.offset_left = 18.0
+	shader_mode_option.offset_right = shader_panel_width - 20.0
+	edge_strength_value.offset_left = 18.0
+	edge_strength_value.offset_right = shader_panel_width - 20.0
+	edge_threshold_slider.offset_left = 18.0
+	edge_threshold_slider.offset_right = shader_panel_width - 20.0
+	edge_glow_value.offset_left = 18.0
+	edge_glow_value.offset_right = shader_panel_width - 20.0
+	edge_strength_slider.offset_left = 18.0
+	edge_strength_slider.offset_right = shader_panel_width - 20.0
+	glow_amount_value.offset_left = 18.0
+	glow_amount_value.offset_right = shader_panel_width - 20.0
+	edge_glow_slider.offset_left = 18.0
+	edge_glow_slider.offset_right = shader_panel_width - 20.0
+	blur_amount_value.offset_left = 18.0
+	blur_amount_value.offset_right = shader_panel_width - 20.0
+	shader_aux_value.offset_left = 18.0
+	shader_aux_value.offset_right = shader_panel_width - 20.0
+	blur_amount_slider.offset_left = 18.0
+	blur_amount_slider.offset_right = shader_panel_width - 20.0
+	shader_aux_slider.offset_left = 18.0
+	shader_aux_slider.offset_right = shader_panel_width - 20.0
+	var shader_control_top := 180.0
+	edge_threshold_value.offset_top = shader_control_top
+	edge_threshold_value.offset_bottom = shader_control_top + 24.0
+	shader_mode_option.offset_top = shader_control_top + 26.0
+	shader_mode_option.offset_bottom = shader_control_top + 58.0
+	edge_strength_value.offset_top = shader_control_top + 74.0
+	edge_strength_value.offset_bottom = shader_control_top + 98.0
+	edge_threshold_slider.offset_top = shader_control_top + 100.0
+	edge_threshold_slider.offset_bottom = shader_control_top + 116.0
+	edge_glow_value.offset_top = shader_control_top + 132.0
+	edge_glow_value.offset_bottom = shader_control_top + 156.0
+	edge_strength_slider.offset_top = shader_control_top + 158.0
+	edge_strength_slider.offset_bottom = shader_control_top + 174.0
+	glow_amount_value.offset_top = shader_control_top + 190.0
+	glow_amount_value.offset_bottom = shader_control_top + 214.0
+	edge_glow_slider.offset_top = shader_control_top + 216.0
+	edge_glow_slider.offset_bottom = shader_control_top + 232.0
+	blur_amount_value.offset_top = shader_control_top + 248.0
+	blur_amount_value.offset_bottom = shader_control_top + 272.0
+	blur_amount_slider.offset_top = shader_control_top + 274.0
+	blur_amount_slider.offset_bottom = shader_control_top + 290.0
+	shader_aux_value.offset_top = shader_control_top + 306.0
+	shader_aux_value.offset_bottom = shader_control_top + 330.0
+	shader_aux_slider.offset_top = shader_control_top + 332.0
+	shader_aux_slider.offset_bottom = shader_control_top + 348.0
 	shader_hint.offset_right = shader_panel_width - 20.0
+	shader_hint.offset_top = shader_panel_height - 54.0
+	shader_hint.offset_bottom = shader_panel_height - 18.0
 	var inspector_panel_width: float = min(viewport_size.x - margin * 2.0, 460.0 if not compact else viewport_size.x - margin * 2.0)
 	var inspector_panel_height: float = min(viewport_size.y - margin * 2.0, 360.0 if is_phone_portrait else 328.0)
 	if inspector_panel != null:
@@ -6283,6 +6359,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	debug_save_defaults_button.add_theme_font_size_override("font_size", utility_button_font)
 	shader_button.add_theme_font_size_override("font_size", utility_button_font)
 	help_button.add_theme_font_size_override("font_size", utility_button_font)
+	settings_button.add_theme_font_size_override("font_size", utility_button_font)
 	fullscreen_button.add_theme_font_size_override("font_size", utility_button_font)
 	settings_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
 	controls_title.add_theme_font_size_override("font_size", 24 if is_phone_portrait else 20)
@@ -6301,6 +6378,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 		edge_threshold_value,
 		edge_strength_value,
 		edge_glow_value,
+		glow_amount_value,
 		blur_amount_value,
 		shader_aux_value,
 		settings_hint,

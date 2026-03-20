@@ -92,15 +92,25 @@ offset_left = -174.0
 offset_top = 18.0
 offset_right = -126.0
 offset_bottom = 46.0
-tooltip_text = "Open help and settings"
+tooltip_text = "Open controls help"
 text = "?"
 
-[node name="ShaderButton" type="Button" parent="CanvasLayer/HUD"]
+[node name="SettingsButton" type="Button" parent="CanvasLayer/HUD"]
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -228.0
 offset_top = 18.0
 offset_right = -180.0
+offset_bottom = 46.0
+tooltip_text = "Open settings"
+text = "⚙"
+
+[node name="ShaderButton" type="Button" parent="CanvasLayer/HUD"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -282.0
+offset_top = 18.0
+offset_right = -234.0
 offset_bottom = 46.0
 tooltip_text = "Open shader controls"
 text = "FX"
@@ -1023,97 +1033,6 @@ offset_bottom = 428.0
 tooltip_text = "Toggle flight physics mode"
 text = "◎"
 
-[node name="EdgeThresholdValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 446.0
-offset_right = 248.0
-offset_bottom = 470.0
-theme_override_font_sizes/font_size = 13
-text = "Shader:"
-
-[node name="ShaderModeOption" type="OptionButton" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 472.0
-offset_right = 320.0
-offset_bottom = 504.0
-
-[node name="EdgeThresholdSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 546.0
-offset_right = 320.0
-offset_bottom = 562.0
-min_value = 0.0
-max_value = 100.0
-value = 70.0
-
-[node name="EdgeStrengthValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 520.0
-offset_right = 248.0
-offset_bottom = 544.0
-theme_override_font_sizes/font_size = 13
-text = "Intensity:"
-
-[node name="EdgeStrengthSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 620.0
-offset_right = 320.0
-offset_bottom = 636.0
-min_value = 0.0
-max_value = 100.0
-value = 48.0
-
-[node name="EdgeGlowValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 594.0
-offset_right = 248.0
-offset_bottom = 618.0
-theme_override_font_sizes/font_size = 13
-text = "Detail:"
-
-[node name="EdgeGlowSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 694.0
-offset_right = 320.0
-offset_bottom = 710.0
-min_value = 0.0
-max_value = 100.0
-value = 58.0
-
-[node name="BlurAmountValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 668.0
-offset_right = 248.0
-offset_bottom = 692.0
-theme_override_font_sizes/font_size = 13
-text = "Wire Glow:"
-
-[node name="BlurAmountSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 768.0
-offset_right = 320.0
-offset_bottom = 784.0
-min_value = 0.0
-max_value = 100.0
-value = 100.0
-
-[node name="ShaderAuxValue" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 742.0
-offset_right = 248.0
-offset_bottom = 766.0
-theme_override_font_sizes/font_size = 13
-text = "Aux Mix:"
-
-[node name="ShaderAuxSlider" type="HSlider" parent="CanvasLayer/HUD/SettingsPanel"]
-offset_left = 18.0
-offset_top = 794.0
-offset_right = 320.0
-offset_bottom = 810.0
-min_value = 0.0
-max_value = 100.0
-value = 35.0
-
 [node name="SettingsHint" type="Label" parent="CanvasLayer/HUD/SettingsPanel"]
 offset_left = 18.0
 offset_top = 816.0
@@ -1202,7 +1121,7 @@ offset_right = 540.0
 offset_bottom = 410.0
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 11
-text = "Press Esc, H, Back, or Close to return"
+text = "Press Esc, H, ?, Back, or Close to return"
 
 [node name="ShaderPanel" type="Panel" parent="CanvasLayer/HUD"]
 visible = false
@@ -1279,6 +1198,105 @@ offset_right = 340.0
 offset_bottom = 166.0
 tooltip_text = "Toggle attitude indicator shader"
 text = "On"
+
+[node name="EdgeThresholdValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 180.0
+offset_right = 248.0
+offset_bottom = 204.0
+theme_override_font_sizes/font_size = 13
+text = "Shader:"
+
+[node name="ShaderModeOption" type="OptionButton" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 206.0
+offset_right = 340.0
+offset_bottom = 238.0
+
+[node name="EdgeStrengthValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 254.0
+offset_right = 248.0
+offset_bottom = 278.0
+theme_override_font_sizes/font_size = 13
+text = "Intensity:"
+
+[node name="EdgeThresholdSlider" type="HSlider" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 280.0
+offset_right = 340.0
+offset_bottom = 296.0
+min_value = 0.0
+max_value = 100.0
+value = 70.0
+
+[node name="EdgeGlowValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 312.0
+offset_right = 248.0
+offset_bottom = 336.0
+theme_override_font_sizes/font_size = 13
+text = "Detail:"
+
+[node name="EdgeStrengthSlider" type="HSlider" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 338.0
+offset_right = 340.0
+offset_bottom = 354.0
+min_value = 0.0
+max_value = 100.0
+value = 48.0
+
+[node name="GlowAmountValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 370.0
+offset_right = 248.0
+offset_bottom = 394.0
+theme_override_font_sizes/font_size = 13
+text = "Glow:"
+
+[node name="EdgeGlowSlider" type="HSlider" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 396.0
+offset_right = 340.0
+offset_bottom = 412.0
+min_value = 0.0
+max_value = 100.0
+value = 58.0
+
+[node name="BlurAmountValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 428.0
+offset_right = 248.0
+offset_bottom = 452.0
+theme_override_font_sizes/font_size = 13
+text = "Wire Intensity:"
+
+[node name="BlurAmountSlider" type="HSlider" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 454.0
+offset_right = 340.0
+offset_bottom = 470.0
+min_value = 0.0
+max_value = 100.0
+value = 100.0
+
+[node name="ShaderAuxValue" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 486.0
+offset_right = 248.0
+offset_bottom = 510.0
+theme_override_font_sizes/font_size = 13
+text = "Aux Mix:"
+
+[node name="ShaderAuxSlider" type="HSlider" parent="CanvasLayer/HUD/ShaderPanel"]
+offset_left = 18.0
+offset_top = 512.0
+offset_right = 340.0
+offset_bottom = 528.0
+min_value = 0.0
+max_value = 100.0
+value = 35.0
 
 [node name="ShaderHint" type="Label" parent="CanvasLayer/HUD/ShaderPanel"]
 offset_left = 18.0
