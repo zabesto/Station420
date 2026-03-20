@@ -540,27 +540,20 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 					onSuccess(result['instance'], result['module']);
 				}
 				const response = r;
-				const isGzipWasm = response.url.endsWith('.wasm.gz');
-				const getSource = function () {
-					if (!isGzipWasm) {
-						return Promise.resolve(response);
+				response.arrayBuffer().then(async function (buffer) {
+					let bytes = new Uint8Array(buffer);
+					const isGzipWasm = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+					if (isGzipWasm) {
+						if (typeof DecompressionStream === 'undefined') {
+							throw new Error('This browser cannot decompress the WebAssembly payload.');
+						}
+						const decompressedResponse = new Response(
+							new Blob([bytes], { type: 'application/gzip' }).stream().pipeThrough(new DecompressionStream('gzip')),
+							{ headers: [['content-type', 'application/wasm']] }
+						);
+						bytes = new Uint8Array(await decompressedResponse.arrayBuffer());
 					}
-					if (typeof DecompressionStream === 'undefined') {
-						throw new Error('This browser cannot decompress the WebAssembly payload.');
-					}
-					return Promise.resolve(new Response(
-						response.body.pipeThrough(new DecompressionStream('gzip')),
-						{ headers: [['content-type', 'application/wasm']] }
-					));
-				};
-				getSource().then(function (source) {
-					if (typeof (WebAssembly.instantiateStreaming) !== 'undefined') {
-						WebAssembly.instantiateStreaming(Promise.resolve(source), imports).then(done);
-					} else {
-						source.arrayBuffer().then(function (buffer) {
-							WebAssembly.instantiate(buffer, imports).then(done);
-						});
-					}
+					WebAssembly.instantiate(bytes, imports).then(done);
 				});
 				r = null;
 				return {};
@@ -731,7 +724,12 @@ const Engine = (function () {
 					// Make sure to test that when refactoring.
 					return new Promise(function (resolve, reject) {
 						promise.then(function (response) {
-							const cloned = new Response(response.clone().body, { 'headers': [['content-type', 'application/wasm']] });
+							const responseHeaders = new Headers(response.headers);
+							responseHeaders.set('content-type', 'application/wasm');
+							if (response.url.endsWith('.wasm.gz')) {
+								responseHeaders.set('x-godot-wasm-gzip', '1');
+							}
+							const cloned = new Response(response.clone().body, { 'headers': responseHeaders });
 							Godot(me.config.getModuleConfig(loadPath, cloned)).then(function (module) {
 								const paths = me.config.persistentPaths;
 								module['initFS'](paths).then(function (err) {
