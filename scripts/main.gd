@@ -63,6 +63,10 @@ const STATION_COLLISION_RADIUS := 120.0
 const AUDIO_MIX_RATE := 22050.0
 const MUSIC_BUFFER_SECONDS := 0.35
 const MUSIC_VOLUME_BIAS_DB := -4.0
+const RADIO_TRACK_DURATION := 24.0
+const RADIO_CROSSFADE_DURATION := 4.5
+const RADIO_CHATTER_MIN_INTERVAL := 24.0
+const RADIO_CHATTER_MAX_INTERVAL := 52.0
 const DEFAULTS_SAVE_PATH := "user://debug_defaults.json"
 const AUTOPILOT_APPROACH_FACTOR := 0.82
 const AUTOPILOT_APPROACH_MIN := 320.0
@@ -223,6 +227,7 @@ var nearby_station: Area3D = null
 var dock_count := 0
 var station_order: Array[Area3D] = []
 var station_nodes_by_name := {}
+var selected_target_station_name := ""
 var shipping_lane_nodes: Array[MeshInstance3D] = []
 var pickup_station := ""
 var delivery_station := ""
@@ -250,6 +255,7 @@ var enemy_projectiles := []
 var transient_effects := []
 var music_player: AudioStreamPlayer
 var music_playback: AudioStreamGeneratorPlayback
+var autopilot_doppler_player: AudioStreamPlayer
 var sfx_streams := {}
 var music_time := 0.0
 var music_phase_a := 0.0
@@ -257,6 +263,10 @@ var music_phase_b := 0.0
 var music_phase_c := 0.0
 var radio_track_index := -1
 var radio_start_track_index := 0
+var station_navigation_meshes: Array[MeshInstance3D] = []
+var station_navigation_lights: Array[OmniLight3D] = []
+var station_strobe_meshes: Array[MeshInstance3D] = []
+var station_strobe_lights: Array[OmniLight3D] = []
 var player_hull := PLAYER_MAX_HULL
 var player_shields := PLAYER_MAX_SHIELDS
 var kills := 0
@@ -291,6 +301,13 @@ var autopilot_state := ""
 var autopilot_station: Area3D = null
 var autopilot_timer := 0.0
 var autopilot_fx_timer := 0.0
+var autopilot_doppler_rate := 0.0
+var autopilot_doppler_mix := 0.0
+var autopilot_doppler_current_rate := 0.0
+var autopilot_doppler_current_mix := 0.0
+var radio_chatter_timer := 18.0
+var autopilot_comms_stage := 0
+var autopilot_rate_status_band := -1
 var camera_mode := 0
 var orbit_distance := 18.0
 var orbit_pitch := -0.32
@@ -378,6 +395,8 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if music_player != null:
 		music_player.stop()
+	if autopilot_doppler_player != null:
+		autopilot_doppler_player.stop()
 	music_playback = null
 
 
@@ -512,6 +531,8 @@ func _process(delta: float) -> void:
 	update_responsive_hud_layout()
 	update_boot_screen(delta)
 	update_music_stream()
+	update_autopilot_doppler(delta)
+	update_ambient_radio(delta)
 	update_alert(delta)
 	update_hit_feedback(delta)
 	if settings_visible:
@@ -532,6 +553,7 @@ func _process(delta: float) -> void:
 	update_contextual_line_visibility()
 	update_objective_visuals(delta)
 	update_enemy_target_marker()
+	update_station_navigation_lights()
 	update_station_spin(delta)
 	update_destroyer_fleet(delta)
 	hud_stats_refresh_timer = max(hud_stats_refresh_timer - delta, 0.0)
@@ -658,8 +680,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_visual_preset((visual_preset_index + 1) % 4)
 			return
 		if event.button_index == JOY_BUTTON_DPAD_UP:
-			bloom_enabled = not bloom_enabled
-			apply_visual_preset()
+			if nearby_station:
+				dock_at_station(nearby_station)
+			else:
+				update_status("No station in range.\nApproach a station halo, then press dock to moor.")
 			return
 		if event.button_index == JOY_BUTTON_DPAD_LEFT:
 			music_enabled = not music_enabled
@@ -773,10 +797,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			try_fire_player_projectile()
 			return
 		if event.button_index == JOY_BUTTON_X:
-			if nearby_station:
-				dock_at_station(nearby_station)
-			else:
-				update_status("No station in range.\nApproach a station halo, then press dock to moor.")
+			cycle_autopilot_target()
 			return
 
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE:
@@ -1061,6 +1082,7 @@ func create_stations() -> void:
 		station_label.no_depth_test = true
 		register_style_label(station_label, "label", Color.WHITE)
 		station.add_child(station_label)
+		add_station_navigation_lights(station, 22.0 * STATION_SCALE)
 
 		station_order.append(station)
 		station_nodes_by_name[station_data["name"]] = station
@@ -1124,6 +1146,7 @@ func create_ringworld_station() -> void:
 	station_label.no_depth_test = true
 	register_style_label(station_label, "label", Color.WHITE)
 	station.add_child(station_label)
+	add_station_navigation_lights(station, RINGWORLD_STATION_RADIUS * 0.42)
 
 	station_order.append(station)
 	station_nodes_by_name["Eidolon Ring"] = station
@@ -1440,11 +1463,73 @@ func update_debug_overlay() -> void:
 	var render_name := "Shaded" if shaded_mode else "Wireframe"
 	var preset_name := get_preset_name(visual_preset_index)
 	var ap_state := "MANUAL" if not autopilot_active else "AP %s" % get_autopilot_state_display()
-	alert_value.text = "VIEW %s | RENDER %s | PRESET %s | %s" % [view_name.to_upper(), render_name.to_upper(), preset_name.to_upper(), ap_state]
-	if camera_mode == 2:
-		hit_value.text = "HEAD yaw %.0f pitch %.0f | ZOOM n/a" % [rad_to_deg(first_person_yaw), rad_to_deg(first_person_pitch)]
-	else:
-		hit_value.text = "ORBIT yaw %.0f pitch %.0f | ZOOM %.0fm" % [rad_to_deg(orbit_yaw), rad_to_deg(orbit_pitch), orbit_distance]
+	alert_value.text = "%s  |  %s  |  %s  |  %s" % [view_name.to_upper(), render_name.to_upper(), preset_name.to_upper(), ap_state]
+	hit_value.text = get_target_telemetry_text()
+
+
+func get_target_telemetry_text() -> String:
+	var target_station := get_target_station()
+	if target_station == null or not is_instance_valid(target_station):
+		return "TARGET NONE"
+	var offset: Vector3 = target_station.global_position - player.global_position
+	var distance: float = offset.length()
+	var closing_rate := get_target_closing_rate(target_station)
+	var target_name := str(target_station.get_meta("station_name"))
+	var rate_status := ""
+	if autopilot_active and target_station == autopilot_station:
+		rate_status = "  |  %s" % get_autopilot_rate_status_text(closing_rate)
+	return "%s  |  %.0fm  |  closing %.0fm/s%s" % [target_name.to_upper(), distance, closing_rate, rate_status]
+
+
+func get_target_closing_rate(target_station: Area3D) -> float:
+	if target_station == null or not is_instance_valid(target_station):
+		return 0.0
+	var offset: Vector3 = target_station.global_position - player.global_position
+	if offset.length() <= 0.001:
+		return 0.0
+	return max(player.velocity.dot(offset.normalized()), 0.0)
+
+
+func get_autopilot_rate_status_band(closing_rate: float) -> int:
+	if closing_rate < 18.0:
+		return 0
+	if closing_rate < 65.0:
+		return 1
+	if closing_rate < 150.0:
+		return 2
+	return 3
+
+
+func get_autopilot_rate_status_text(closing_rate: float) -> String:
+	match get_autopilot_rate_status_band(closing_rate):
+		0:
+			return "HOLD"
+		1:
+			return "STABLE"
+		2:
+			return "FAST"
+		_:
+			return "HOT"
+
+
+func maybe_report_autopilot_rate_status(closing_rate: float) -> void:
+	if not autopilot_active or autopilot_station == null or not is_instance_valid(autopilot_station):
+		return
+	var band := get_autopilot_rate_status_band(closing_rate)
+	if band == autopilot_rate_status_band:
+		return
+	autopilot_rate_status_band = band
+	var station_name := str(autopilot_station.get_meta("station_name"))
+	match band:
+		0:
+			play_radio_message("%s Approach" % station_name, "Closure nearly nil. Holding you on a civilized crawl. No need to terrify the dockhands.", "comms_station", -15.0)
+		1:
+			play_radio_message("%s Approach" % station_name, "Closure rate nominal. Sensible, steady, and only faintly alarming.", "comms_station", -15.0)
+		2:
+			play_radio_message("%s Approach" % station_name, "Closure is brisk. Entirely workable, provided you continue pretending this was the plan.", "comms_station", -14.0)
+		_:
+			play_radio_message("%s Approach" % station_name, "Closure is rather hot. Do bleed some speed before you arrive as an anecdote.", "comms_station", -13.0)
+	set_alert("AP %s" % get_autopilot_rate_status_text(closing_rate), 0.4)
 
 
 func get_autopilot_state_display() -> String:
@@ -2417,12 +2502,44 @@ func toggle_autopilot() -> void:
 	engage_autopilot(target_station)
 
 
+func cycle_autopilot_target() -> void:
+	if station_order.is_empty():
+		set_alert("No AP targets", 0.35)
+		return
+	var current_station := get_target_station()
+	var start_index := 0
+	if current_station != null:
+		start_index = maxi(station_order.find(current_station), 0)
+	var next_station: Area3D = null
+	for step in range(1, station_order.size() + 1):
+		var candidate: Area3D = station_order[(start_index + step) % station_order.size()]
+		if candidate == null or not is_instance_valid(candidate):
+			continue
+		next_station = candidate
+		break
+	if next_station == null:
+		set_alert("No AP targets", 0.35)
+		return
+	selected_target_station_name = str(next_station.get_meta("station_name"))
+	objective_flash_time = 0.4
+	var planet_name := str(next_station.get_meta("planet_name"))
+	set_alert("Target: %s" % selected_target_station_name, 0.35)
+	update_status("Autopilot target cycled.\n%s selected%s." % [
+		selected_target_station_name,
+		"" if planet_name.is_empty() else " in %s orbit" % planet_name
+	])
+
+
 func engage_autopilot(target_station: Area3D) -> void:
 	autopilot_active = true
 	autopilot_state = "arm"
 	autopilot_station = target_station
 	autopilot_timer = 0.0
 	autopilot_fx_timer = 0.0
+	autopilot_doppler_rate = 0.24
+	autopilot_doppler_mix = 0.16
+	autopilot_comms_stage = 0
+	autopilot_rate_status_band = -1
 	objective_guidance_enabled = true
 	player.call("set_control_lock", true)
 	var station_name := str(target_station.get_meta("station_name"))
@@ -2438,6 +2555,10 @@ func cancel_autopilot(show_alert: bool = true) -> void:
 	autopilot_station = null
 	autopilot_timer = 0.0
 	autopilot_fx_timer = 0.0
+	autopilot_doppler_rate = 0.0
+	autopilot_doppler_mix = 0.0
+	autopilot_comms_stage = 0
+	autopilot_rate_status_band = -1
 	player.call("set_autopilot_pose", false)
 	player.call("set_control_lock", false)
 	if show_alert:
@@ -2461,14 +2582,14 @@ func compute_autopilot_ring_rate(distance_to_target: float, reference_distance: 
 	var far_distance: float = max(reference_distance * 1.9, 220.0)
 	var near_distance: float = max(reference_distance * 0.08, 18.0)
 	var closeness: float = clamp(inverse_lerp(far_distance, near_distance, distance_to_target), 0.0, 1.0)
-	return lerp(0.18, 1.4, pow(closeness, 1.35))
+	return lerp(0.08, 0.72, pow(closeness, 1.45))
 
 
 func compute_autopilot_ring_interval(distance_to_target: float, reference_distance: float) -> float:
 	var far_distance: float = max(reference_distance * 1.9, 220.0)
 	var near_distance: float = max(reference_distance * 0.08, 18.0)
 	var closeness: float = clamp(inverse_lerp(far_distance, near_distance, distance_to_target), 0.0, 1.0)
-	return lerp(0.95, 0.18, pow(closeness, 1.25))
+	return lerp(1.45, 0.34, pow(closeness, 1.2))
 
 
 func update_autopilot(delta: float) -> bool:
@@ -2495,9 +2616,13 @@ func update_autopilot(delta: float) -> bool:
 	if transfer_dir.length() <= 0.001:
 		transfer_dir = -corridor_dir
 	var transfer_basis: Basis = compute_autopilot_basis(transfer_dir)
+	var target_doppler_rate := 0.24
+	var target_doppler_mix := 0.14
 
 	match autopilot_state:
 		"arm":
+			target_doppler_rate = 0.22
+			target_doppler_mix = 0.14
 			var settle_velocity: Vector3 = player.velocity * max(1.0 - delta * 3.2, 0.0)
 			player.call("set_autopilot_pose", true, player.global_position, player.call("get_visual_basis"), settle_velocity)
 			if autopilot_fx_timer == 0.0:
@@ -2511,6 +2636,8 @@ func update_autopilot(delta: float) -> bool:
 				set_alert("AP execute", 0.35)
 				play_sfx("autopilot_lock", -11.0)
 		"turn":
+			target_doppler_rate = 0.34
+			target_doppler_mix = 0.16
 			var settle_velocity: Vector3 = player.velocity * max(1.0 - delta * 3.8, 0.0)
 			player.call("set_autopilot_pose", true, player.global_position, transfer_basis, settle_velocity)
 			if autopilot_fx_timer == 0.0:
@@ -2523,6 +2650,10 @@ func update_autopilot(delta: float) -> bool:
 		"approach":
 			var distance_to_approach: float = player.global_position.distance_to(approach_point)
 			var ring_rate: float = compute_autopilot_ring_rate(distance_to_approach, approach_distance)
+			target_doppler_rate = ring_rate
+			target_doppler_mix = lerp(0.12, 0.28, clamp(inverse_lerp(0.18, 1.4, ring_rate), 0.0, 1.0))
+			maybe_report_autopilot_rate_status(get_target_closing_rate(autopilot_station))
+			maybe_play_autopilot_station_comms("approach", distance_to_approach, approach_distance)
 			var desired_speed: float = clamp(distance_to_approach * 0.54, 90.0, 360.0)
 			var approach_velocity: Vector3 = (approach_point - player.global_position).normalized() * desired_speed if distance_to_approach > 1.0 else Vector3.ZERO
 			var approach_basis := compute_autopilot_basis(approach_velocity if approach_velocity.length() > 1.0 else transfer_dir)
@@ -2539,6 +2670,10 @@ func update_autopilot(delta: float) -> bool:
 		"align":
 			var distance_to_align: float = player.global_position.distance_to(align_point)
 			var ring_rate: float = compute_autopilot_ring_rate(distance_to_align, align_distance)
+			target_doppler_rate = ring_rate * 1.06
+			target_doppler_mix = lerp(0.14, 0.33, clamp(inverse_lerp(0.18, 1.45, target_doppler_rate), 0.0, 1.0))
+			maybe_report_autopilot_rate_status(get_target_closing_rate(autopilot_station))
+			maybe_play_autopilot_station_comms("align", distance_to_align, align_distance)
 			var desired_speed: float = clamp(distance_to_align * 0.58, 34.0, 130.0)
 			var align_velocity: Vector3 = (align_point - player.global_position).normalized() * desired_speed if distance_to_align > 1.0 else Vector3.ZERO
 			var align_target := compute_autopilot_seek_target(align_velocity, AUTOPILOT_ALIGN_LEAD)
@@ -2553,6 +2688,9 @@ func update_autopilot(delta: float) -> bool:
 				create_docking_effect(dock_point, dock_basis, Color(0.82, 1.0, 0.96), 28.0, 1.1, "dock_flash")
 				update_status("Autopilot docking.\nMag-clamps are primed, alignment lasers stable, and docking collar is closing.")
 		"dock":
+			target_doppler_rate = 0.96
+			target_doppler_mix = 0.18
+			maybe_play_autopilot_station_comms("dock", player.global_position.distance_to(dock_point), max(dock_offset.length(), 1.0))
 			var t: float = clamp(autopilot_timer / AUTOPILOT_DOCK_DURATION, 0.0, 1.0)
 			var smoothed: float = t * t * (3.0 - 2.0 * t)
 			var position: Vector3 = align_point.lerp(dock_point, smoothed)
@@ -2566,6 +2704,8 @@ func update_autopilot(delta: float) -> bool:
 				create_docking_effect(dock_point, dock_basis, Color(1.0, 0.96, 0.82), 34.0, 1.2, "dock_flash")
 				update_status("Docking complete.\nService umbilicals connected. Stand by for automatic launch and departure burn.")
 		"docked":
+			target_doppler_rate = 0.12
+			target_doppler_mix = 0.06
 			player.call("set_autopilot_pose", true, dock_point, dock_basis, Vector3.ZERO)
 			if autopilot_timer >= AUTOPILOT_DOCK_HOLD:
 				autopilot_state = "launch"
@@ -2576,6 +2716,8 @@ func update_autopilot(delta: float) -> bool:
 		"launch":
 			var t: float = clamp(autopilot_timer / AUTOPILOT_LAUNCH_DURATION, 0.0, 1.0)
 			var eased: float = 1.0 - pow(1.0 - t, 3.0)
+			target_doppler_rate = lerp(0.34, 0.92, eased)
+			target_doppler_mix = lerp(0.08, 0.2, eased)
 			var position: Vector3 = dock_point.lerp(departure_point, eased)
 			var basis: Basis = dock_basis.slerp(launch_basis, eased)
 			var velocity: Vector3 = corridor_dir * lerp(32.0, 260.0, eased)
@@ -2593,8 +2735,14 @@ func update_autopilot(delta: float) -> bool:
 				autopilot_station = null
 				autopilot_timer = 0.0
 				autopilot_fx_timer = 0.0
+				autopilot_doppler_rate = 0.0
+				autopilot_doppler_mix = 0.0
+				autopilot_comms_stage = 0
+				autopilot_rate_status_band = -1
 				set_alert("Autopilot complete", 0.45)
 				update_status("Autopilot departure complete.\nYou are clear of the dock and back on manual flight control.")
+	autopilot_doppler_rate = target_doppler_rate
+	autopilot_doppler_mix = target_doppler_mix
 	return true
 
 
@@ -3061,7 +3209,7 @@ func setup_audio() -> void:
 	rng.randomize()
 	var tracks := get_radio_tracks()
 	radio_start_track_index = rng.randi_range(0, tracks.size() - 1)
-	music_time = radio_start_track_index * 24.0 + rng.randf_range(0.0, 3.0)
+	music_time = radio_start_track_index * RADIO_TRACK_DURATION + rng.randf_range(0.0, 3.0)
 	music_phase_a = rng.randf_range(0.0, TAU)
 	music_phase_b = rng.randf_range(0.0, TAU)
 	music_phase_c = rng.randf_range(0.0, TAU)
@@ -3088,10 +3236,20 @@ func setup_audio() -> void:
 	sfx_streams["enemy_down"] = build_enemy_down_stream()
 	sfx_streams["loss"] = build_loss_stream()
 	sfx_streams["comms"] = build_comms_stream()
+	sfx_streams["comms_station"] = build_station_comms_stream()
+	sfx_streams["comms_news"] = build_news_comms_stream()
+	sfx_streams["comms_hauler"] = build_hauler_comms_stream()
 	sfx_streams["autopilot_lock"] = build_autopilot_lock_stream()
 	sfx_streams["launch"] = build_launch_stream()
+	autopilot_doppler_player = AudioStreamPlayer.new()
+	autopilot_doppler_player.name = "AutopilotDopplerPlayer"
+	autopilot_doppler_player.stream = build_autopilot_doppler_stream()
+	autopilot_doppler_player.volume_db = -80.0
+	autopilot_doppler_player.pitch_scale = 0.82
+	add_child(autopilot_doppler_player)
 	update_music_state()
 	update_music_stream()
+	reset_radio_chatter_timer(RADIO_CHATTER_MIN_INTERVAL * 0.55, RADIO_CHATTER_MAX_INTERVAL * 0.7)
 
 
 func update_music_stream() -> void:
@@ -3102,37 +3260,230 @@ func update_music_stream() -> void:
 		return
 
 	var tracks := get_radio_tracks()
-	var track_index := int(floor(music_time / 24.0)) % tracks.size()
+	var track_index := int(floor(music_time / RADIO_TRACK_DURATION)) % tracks.size()
 	if track_index != radio_track_index:
 		radio_track_index = track_index
 		set_alert("Radio: %s" % tracks[track_index]["name"], 0.25)
-	var progression: Array = tracks[track_index]["progression"]
-	var accent: Array = tracks[track_index]["accent"]
-	var pulse_rate: float = tracks[track_index]["pulse"]
 	for i in range(frames_available):
-		var chord_index := int(floor(music_time / 3.2)) % progression.size()
-		var beat_phase := fmod(music_time, 0.8) / 0.8
-		var low_freq: float = progression[chord_index]
-		var high_freq: float = accent[chord_index]
-		music_phase_a += TAU * low_freq / AUDIO_MIX_RATE
-		music_phase_b += TAU * (low_freq * 1.5) / AUDIO_MIX_RATE
-		music_phase_c += TAU * high_freq / AUDIO_MIX_RATE
-		var drone := sin(music_phase_a) * 0.16 + sin(music_phase_b) * 0.08
-		var shimmer_gate := pow(max(0.0, sin(beat_phase * PI)), 3.0)
-		var shimmer := sin(music_phase_c) * shimmer_gate * 0.035
-		var pulse := sin(music_time * TAU * pulse_rate) * 0.022
-		var sub := sin(music_phase_a * 0.5) * 0.035
-		var sample: float = clamp(drone + shimmer + pulse + sub, -0.55, 0.55)
+		var current_track_index := int(floor(music_time / RADIO_TRACK_DURATION)) % tracks.size()
+		var next_track_index := (current_track_index + 1) % tracks.size()
+		var current_track: Dictionary = tracks[current_track_index]
+		var next_track: Dictionary = tracks[next_track_index]
+		var track_local_time := fmod(music_time, RADIO_TRACK_DURATION)
+		var crossfade: float = clamp((track_local_time - (RADIO_TRACK_DURATION - RADIO_CROSSFADE_DURATION)) / RADIO_CROSSFADE_DURATION, 0.0, 1.0)
+		var current_sample := generate_radio_sample(current_track, music_time)
+		var next_sample := generate_radio_sample(next_track, music_time)
+		var sample: float = clamp(lerp(current_sample, next_sample, crossfade), -0.55, 0.55)
 		music_playback.push_frame(Vector2(sample, sample))
 		music_time += 1.0 / AUDIO_MIX_RATE
+
+
+func update_autopilot_doppler(delta: float) -> void:
+	if autopilot_doppler_player == null:
+		return
+	var target_mix: float = autopilot_doppler_mix if autopilot_active and not paused and sfx_enabled else 0.0
+	var target_rate: float = autopilot_doppler_rate if autopilot_active and not paused and sfx_enabled else 0.0
+	autopilot_doppler_current_mix = move_toward(autopilot_doppler_current_mix, target_mix, delta * 0.45)
+	autopilot_doppler_current_rate = move_toward(autopilot_doppler_current_rate, target_rate, delta * 1.6)
+	if autopilot_doppler_current_mix > 0.003:
+		if not autopilot_doppler_player.playing:
+			autopilot_doppler_player.play()
+		var normalized_rate: float = clamp(inverse_lerp(0.18, 1.45, autopilot_doppler_current_rate), 0.0, 1.0)
+		autopilot_doppler_player.pitch_scale = lerp(0.74, 1.42, normalized_rate)
+		var intensity: float = max(autopilot_doppler_current_mix * 0.12, 0.001)
+		autopilot_doppler_player.volume_db = linear_to_db(intensity) + get_sfx_volume_offset_db() - 2.0
+	else:
+		autopilot_doppler_player.volume_db = -80.0
+		if autopilot_doppler_player.playing:
+			autopilot_doppler_player.stop()
+
+
+func reset_radio_chatter_timer(minimum: float = RADIO_CHATTER_MIN_INTERVAL, maximum: float = RADIO_CHATTER_MAX_INTERVAL) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	radio_chatter_timer = rng.randf_range(minimum, maximum)
+
+
+func update_ambient_radio(delta: float) -> void:
+	if start_screen_active or paused or game_over_state or not sfx_enabled:
+		return
+	if autopilot_active:
+		radio_chatter_timer = max(radio_chatter_timer, 7.0)
+		return
+	radio_chatter_timer -= delta
+	if radio_chatter_timer > 0.0:
+		return
+	broadcast_ambient_radio()
+	reset_radio_chatter_timer()
+
+
+func broadcast_ambient_radio() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var dispatches := [
+		{"voice": "comms_news", "speaker": "Relay Nine News", "message": "Shipping bulletin: customs has again clarified that declaring contraband as 'morale equipment' remains, technically, rather illegal."},
+		{"voice": "comms_news", "speaker": "Helios Late", "message": "Market watch: reactor salts are up three percent, tea is flat, and ring-toll clerks remain as chirpy as a tax audit."},
+		{"voice": "comms_news", "speaker": "Cinder Evening Service", "message": "Public notice: the mayor denies rumours of pirates in civic office, which was sporting of him considering the evidence."},
+		{"voice": "comms_news", "speaker": "Outer System Bulletin", "message": "Astronomy desk: the star continues to burn with vulgar competence. Experts are monitoring the situation with the usual alarm and sandwiches."}
+	]
+	var haulers := [
+		{"voice": "comms_hauler", "speaker": "Freighter Magpie Seven", "message": "Anyone bound for Orion Gate, mind the queue. They call it express docking, which is adorable if you've not seen a calendar."},
+		{"voice": "comms_hauler", "speaker": "Tug Beryl Jane", "message": "Cargo run log: thirty tonnes of machine parts, one suspicious goat, and a manifest written by an optimist."},
+		{"voice": "comms_hauler", "speaker": "Hauler Distant Complaints", "message": "To the pilot shedding panels in lane three: do keep the bits attached. Some of us are trying to die of old age."},
+		{"voice": "comms_hauler", "speaker": "Courier Bent Spoon", "message": "If station control asks, I've absolutely filed my approach paperwork. Whether they can find it is a theological matter."}
+	]
+	var chatter_pool := dispatches if rng.randf() < 0.48 else haulers
+	var entry: Dictionary = chatter_pool[rng.randi_range(0, chatter_pool.size() - 1)]
+	play_radio_message(str(entry["speaker"]), str(entry["message"]), str(entry["voice"]))
+
+
+func play_radio_message(speaker: String, body: String, voice_name: String = "comms", volume_db: float = -15.0) -> void:
+	play_sfx(voice_name, volume_db)
+	update_status("%s\n%s" % [speaker, body])
+	set_alert("Comms: %s" % speaker, 0.35)
+
+
+func maybe_play_autopilot_station_comms(stage: String, distance_to_target: float, reference_distance: float) -> void:
+	if autopilot_station == null or not is_instance_valid(autopilot_station):
+		return
+	var station_name := str(autopilot_station.get_meta("station_name"))
+	var closeness: float = clamp(inverse_lerp(max(reference_distance * 1.4, 160.0), max(reference_distance * 0.08, 18.0), distance_to_target), 0.0, 1.0)
+	if stage == "approach":
+		if autopilot_comms_stage < 1 and closeness > 0.18:
+			autopilot_comms_stage = 1
+			play_radio_message(
+				"%s Approach" % station_name,
+				"Station420, your corridor solution is in the box. Do try to arrive with the same number of wings you left with.",
+				"comms_station",
+				-13.0
+			)
+		elif autopilot_comms_stage < 2 and closeness > 0.62:
+			autopilot_comms_stage = 2
+			play_radio_message(
+				"%s Approach" % station_name,
+				"Range is tightening nicely. You are almost respectable. Hold the lane and we'll pretend this was all entirely intentional.",
+				"comms_station",
+				-13.0
+			)
+	elif stage == "align" and autopilot_comms_stage < 3:
+		autopilot_comms_stage = 3
+		play_radio_message(
+			"%s Dock Control" % station_name,
+			"Alignment looks tidy. Keep it there, old thing. The collar is expensive and we'd rather not test it against your paintwork.",
+			"comms_station",
+			-12.0
+		)
+	elif stage == "dock" and autopilot_comms_stage < 4:
+		autopilot_comms_stage = 4
+		play_radio_message(
+			"%s Dock Control" % station_name,
+			"Clamp sequence is green. Mind the bump. We call it character when the docking ring shudders like that.",
+			"comms_station",
+			-12.0
+		)
 
 
 func get_radio_tracks() -> Array:
 	return [
 		{"name": "Drift", "progression": [55.0, 82.41, 73.42, 98.0], "accent": [220.0, 246.94, 196.0, 164.81], "pulse": 0.125},
 		{"name": "Nebula FM", "progression": [61.74, 92.5, 82.41, 110.0], "accent": [164.81, 220.0, 246.94, 293.66], "pulse": 0.142},
-		{"name": "Deep Relay", "progression": [49.0, 65.41, 73.42, 87.31], "accent": [146.83, 196.0, 220.0, 174.61], "pulse": 0.11}
+		{"name": "Deep Relay", "progression": [49.0, 65.41, 73.42, 87.31], "accent": [146.83, 196.0, 220.0, 174.61], "pulse": 0.11},
+		{"name": "Blue Shift", "progression": [69.3, 92.5, 103.83, 82.41], "accent": [277.18, 329.63, 246.94, 220.0], "pulse": 0.133},
+		{"name": "Night Freight", "progression": [41.2, 55.0, 61.74, 73.42], "accent": [123.47, 164.81, 185.0, 146.83], "pulse": 0.098},
+		{"name": "Helios Late", "progression": [58.27, 87.31, 77.78, 116.54], "accent": [233.08, 261.63, 311.13, 196.0], "pulse": 0.152}
 	]
+
+
+func generate_radio_sample(track: Dictionary, time_value: float) -> float:
+	var progression: Array = track["progression"]
+	var accent: Array = track["accent"]
+	var pulse_rate: float = track["pulse"]
+	var chord_index := int(floor(time_value / 3.2)) % progression.size()
+	var beat_phase := fmod(time_value, 0.8) / 0.8
+	var low_freq: float = progression[chord_index]
+	var high_freq: float = accent[chord_index]
+	var drift_a := sin(time_value * TAU * (0.021 + low_freq * 0.00008))
+	var drift_b := sin(time_value * TAU * (0.015 + high_freq * 0.00004))
+	var drone := sin(time_value * TAU * low_freq) * 0.13 + sin(time_value * TAU * (low_freq * 1.5 + drift_a * 0.7)) * 0.06
+	var shimmer_gate := pow(max(0.0, sin(beat_phase * PI)), 3.0)
+	var shimmer := sin(time_value * TAU * (high_freq + drift_b * 1.6)) * shimmer_gate * 0.032
+	var pulse := sin(time_value * TAU * pulse_rate) * 0.024
+	var sub := sin(time_value * TAU * (low_freq * 0.5)) * 0.032
+	return drone + shimmer + pulse + sub
+
+
+func add_station_navigation_lights(station: Node3D, span: float) -> void:
+	var port_color := Color(1.0, 0.18, 0.16)
+	var starboard_color := Color(0.18, 1.0, 0.34)
+	for side in [-1.0, 1.0]:
+		var nav_color := port_color if side < 0.0 else starboard_color
+		var nav_mesh := MeshInstance3D.new()
+		var bulb := SphereMesh.new()
+		bulb.radius = span * 0.012
+		bulb.height = span * 0.024
+		nav_mesh.mesh = bulb
+		nav_mesh.position = Vector3(span * 0.88 * side, span * 0.16, 0.0)
+		register_style_mesh(nav_mesh, "dock", nav_color)
+		station.add_child(nav_mesh)
+		station_navigation_meshes.append(nav_mesh)
+
+		var nav_light := OmniLight3D.new()
+		nav_light.light_color = nav_color
+		nav_light.light_energy = 2.2
+		nav_light.omni_range = max(span * 2.2, 120.0)
+		nav_light.omni_attenuation = 1.7
+		nav_light.position = nav_mesh.position
+		station.add_child(nav_light)
+		station_navigation_lights.append(nav_light)
+
+	for offset in [Vector3(0.0, span * 0.54, span * 0.2), Vector3(0.0, -span * 0.24, -span * 0.18)]:
+		var strobe_mesh := MeshInstance3D.new()
+		var strobe_ball := SphereMesh.new()
+		strobe_ball.radius = span * 0.013
+		strobe_ball.height = span * 0.026
+		strobe_mesh.mesh = strobe_ball
+		strobe_mesh.position = offset
+		register_style_mesh(strobe_mesh, "dock", Color.WHITE)
+		station.add_child(strobe_mesh)
+		station_strobe_meshes.append(strobe_mesh)
+
+		var strobe_light := OmniLight3D.new()
+		strobe_light.light_color = Color.WHITE
+		strobe_light.light_energy = 5.4
+		strobe_light.omni_range = max(span * 2.8, 180.0)
+		strobe_light.omni_attenuation = 1.28
+		strobe_light.position = offset
+		station.add_child(strobe_light)
+		station_strobe_lights.append(strobe_light)
+
+
+func update_station_navigation_lights() -> void:
+	var pulse_time := Time.get_ticks_msec() * 0.001
+	var nav_wave := 0.7 + 0.3 * sin(pulse_time * 0.55)
+	var strobe_phase := fmod(pulse_time * 0.9, 1.0)
+	var strobe_on := strobe_phase < 0.06 or (strobe_phase > 0.14 and strobe_phase < 0.2)
+	for i in range(station_navigation_meshes.size()):
+		var mesh := station_navigation_meshes[i]
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		var material := mesh.material_override as StandardMaterial3D
+		if material != null:
+			material.emission = material.albedo_color * (1.4 + nav_wave * 1.6)
+		if i < station_navigation_lights.size():
+			var light := station_navigation_lights[i]
+			if light != null and is_instance_valid(light):
+				light.light_energy = 1.5 + nav_wave * 1.2
+	for mesh in station_strobe_meshes:
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		mesh.visible = strobe_on
+		var strobe_material := mesh.material_override as StandardMaterial3D
+		if strobe_material != null:
+			strobe_material.emission = Color.WHITE * (4.2 if strobe_on else 0.2)
+	for light in station_strobe_lights:
+		if light == null or not is_instance_valid(light):
+			continue
+		light.visible = strobe_on
 
 
 func play_sfx(name: String, volume_db: float = -6.0) -> void:
@@ -3267,12 +3618,46 @@ func build_comms_stream() -> AudioStreamWAV:
 	return build_tone_stream([880.0, 554.37, 698.46, 466.16], 0.26, 0.16, 0.08, 0.82)
 
 
+func build_station_comms_stream() -> AudioStreamWAV:
+	return build_tone_stream([620.0, 708.0, 802.0, 714.0, 588.0], 0.34, 0.11, 0.16, 0.7)
+
+
+func build_news_comms_stream() -> AudioStreamWAV:
+	return build_tone_stream([412.0, 438.0, 492.0, 522.0], 0.42, 0.1, 0.1, 0.85)
+
+
+func build_hauler_comms_stream() -> AudioStreamWAV:
+	return build_tone_stream([188.0, 210.0, 176.0, 196.0], 0.36, 0.13, 0.2, 0.9)
+
+
 func build_autopilot_lock_stream() -> AudioStreamWAV:
 	return build_tone_stream([392.0, 523.25, 659.25, 783.99], 0.22, 0.18, 0.03, 1.05)
 
 
 func build_launch_stream() -> AudioStreamWAV:
 	return build_tone_stream([220.0, 330.0, 440.0, 554.37], 0.42, 0.24, 0.08, 0.95)
+
+
+func build_autopilot_doppler_stream() -> AudioStreamWAV:
+	var duration := 1.0
+	var sample_count := int(AUDIO_MIX_RATE * duration)
+	var data := PackedByteArray()
+	data.resize(sample_count * 2)
+	for i in range(sample_count):
+		var t := float(i) / AUDIO_MIX_RATE
+		var phase := t / duration
+		var envelope := pow(max(0.0, sin(phase * PI)), 1.45)
+		var swell := 0.55 + 0.45 * sin(phase * TAU)
+		var carrier := sin(t * TAU * (126.0 + swell * 48.0))
+		var shimmer := sin(t * TAU * (244.0 + sin(phase * TAU * 2.0) * 18.0)) * 0.38
+		var bed := sin(t * TAU * 62.0) * 0.22
+		var sample := (carrier * 0.62 + shimmer * 0.22 + bed * 0.16) * envelope * 0.34
+		write_pcm16_sample(data, i, sample)
+	var stream := create_wav_stream(data)
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = sample_count
+	return stream
 
 
 func build_radio_loop_stream(track_index: int = 0) -> AudioStreamWAV:
@@ -3677,16 +4062,24 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	var attitude_size: float = min(176.0, max(136.0, viewport_size.x * (0.16 if compact else 0.1)))
 	var side_height := 166.0 if compact else 214.0
 	var bottom_margin := 14.0 if compact else 22.0
-	var top_height := 76.0 if compact else 84.0
-	var top_width: float = min(viewport_size.x - margin * 2.0 - 112.0, 640.0 if compact else 560.0)
+	var top_height := 82.0 if compact else 92.0
+	var top_width: float = min(viewport_size.x - margin * 2.0 - 112.0, 700.0 if compact else 720.0)
 	top_frame.offset_left = -top_width * 0.5
 	top_frame.offset_right = top_width * 0.5
 	top_frame.offset_top = margin
 	top_frame.offset_bottom = margin + top_height
-	alert_value.offset_left = 18.0
-	alert_value.offset_right = top_width - 18.0
-	hit_value.offset_left = 18.0
-	hit_value.offset_right = top_width - 18.0
+	alert_value.offset_left = 20.0
+	alert_value.offset_top = 10.0
+	alert_value.offset_right = top_width - 20.0
+	alert_value.offset_bottom = 34.0
+	hit_value.offset_left = 20.0
+	hit_value.offset_top = 40.0
+	hit_value.offset_right = top_width - 20.0
+	hit_value.offset_bottom = 66.0
+	alert_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hit_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	alert_value.add_theme_font_size_override("font_size", 11 if compact else 13)
+	hit_value.add_theme_font_size_override("font_size", 10 if compact else 12)
 	attitude_frame.offset_left = margin
 	attitude_frame.offset_top = margin + 52.0
 	attitude_frame.offset_right = margin + attitude_size
@@ -3707,6 +4100,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 	right_frame.offset_top = -side_height - bottom_margin
 	right_frame.offset_bottom = -bottom_margin
 	var message_width: float = min(viewport_size.x - margin * 2.0 - (0.0 if compact else side_width * 1.8), 720.0 if not compact else viewport_size.x - margin * 2.0)
+	message_width = max(message_width, 320.0 if compact else 420.0)
 	message_frame.offset_left = -message_width * 0.5
 	message_frame.offset_right = message_width * 0.5
 	message_frame.offset_top = -(86.0 if compact else 92.0)
@@ -3801,6 +4195,11 @@ func update_scanner() -> void:
 
 
 func get_target_station() -> Area3D:
+	if not selected_target_station_name.is_empty():
+		var selected_station: Area3D = station_nodes_by_name.get(selected_target_station_name, null)
+		if selected_station != null and is_instance_valid(selected_station):
+			return selected_station
+		selected_target_station_name = ""
 	var target_name := pickup_station
 	if cargo_loaded:
 		target_name = delivery_station
@@ -3843,6 +4242,7 @@ func setup_cargo_route() -> void:
 		return
 
 	cargo_loaded = false
+	selected_target_station_name = ""
 	pickup_station = str(station_order[0].get_meta("station_name"))
 	var midpoint_index := int(station_order.size() / 2)
 	delivery_station = str(station_order[midpoint_index].get_meta("station_name"))
@@ -3851,6 +4251,8 @@ func setup_cargo_route() -> void:
 
 
 func handle_cargo_dock(station_name: String) -> void:
+	if station_name == selected_target_station_name:
+		selected_target_station_name = ""
 	if station_name == pickup_station and not cargo_loaded:
 		cargo_loaded = true
 		title_label.text = "Cargo Loaded"

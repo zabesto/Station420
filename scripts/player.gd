@@ -57,6 +57,10 @@ var cockpit_frame_meshes: Array[MeshInstance3D] = []
 var cockpit_glow_meshes: Array[MeshInstance3D] = []
 var cockpit_canopy_meshes: Array[MeshInstance3D] = []
 var cockpit_lights: Array[OmniLight3D] = []
+var navigation_light_meshes: Array[MeshInstance3D] = []
+var navigation_lights: Array[OmniLight3D] = []
+var strobe_meshes: Array[MeshInstance3D] = []
+var strobe_lights: Array[OmniLight3D] = []
 var thruster_accent_color := Color(0.55, 0.95, 1.0)
 var thruster_shaded_mode := false
 
@@ -100,6 +104,7 @@ func _ready() -> void:
 	retro_thruster_audio.position = Vector3(0, 0.0, -1.8)
 	visual.add_child(retro_thruster_audio)
 	retro_thruster_audio.play()
+	build_navigation_lights()
 	cockpit_interior_root = build_cockpit_interior()
 	cockpit_interior_root.visible = false
 	add_child(cockpit_interior_root)
@@ -125,6 +130,7 @@ func _physics_process(delta: float) -> void:
 		cockpit_interior_root.global_transform = visual.global_transform
 		update_engine_visual()
 		update_engine_audio()
+		update_navigation_lights()
 		update_trail(delta)
 		return
 
@@ -159,6 +165,7 @@ func _physics_process(delta: float) -> void:
 	cockpit_interior_root.global_transform = visual.global_transform
 	update_engine_visual()
 	update_engine_audio()
+	update_navigation_lights()
 	update_trail(delta)
 
 
@@ -405,6 +412,12 @@ func set_thruster_style(shaded: bool, accent_color: Color) -> void:
 		engine_mesh_instance.material_override = make_engine_material()
 	if trail_mesh_instance != null:
 		trail_mesh_instance.material_override = make_trail_material()
+	for mesh in navigation_light_meshes:
+		if mesh != null:
+			mesh.material_override = make_navigation_light_material(mesh.get_meta("nav_color", Color.WHITE), 1.0)
+	for mesh in strobe_meshes:
+		if mesh != null:
+			mesh.material_override = make_navigation_light_material(Color.WHITE, 1.35)
 
 
 func make_ship_material() -> StandardMaterial3D:
@@ -435,6 +448,15 @@ func make_engine_material() -> StandardMaterial3D:
 	material.albedo_color = Color(thruster_accent_color.r, thruster_accent_color.g, thruster_accent_color.b, alpha)
 	material.emission_enabled = true
 	material.emission = thruster_accent_color * (1.85 if thruster_shaded_mode else 1.1)
+	return material
+
+
+func make_navigation_light_material(color: Color, intensity: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = color * intensity * (1.1 if thruster_shaded_mode else 1.7)
 	return material
 
 
@@ -514,6 +536,82 @@ func update_engine_audio() -> void:
 		var retro_level: float = clamp(reverse_thrust_amount, 0.0, 1.0)
 		retro_thruster_audio.volume_db = lerp(-44.0, -9.0, retro_level)
 		retro_thruster_audio.pitch_scale = lerp(0.92, 1.08, retro_level)
+
+
+func build_navigation_lights() -> void:
+	var port_color := Color(1.0, 0.18, 0.16)
+	var starboard_color := Color(0.18, 1.0, 0.32)
+	for side in [-1.0, 1.0]:
+		var nav_color := port_color if side < 0.0 else starboard_color
+		var light_mesh := MeshInstance3D.new()
+		light_mesh.name = "NavLight%s" % ("Port" if side < 0.0 else "Starboard")
+		var mesh := SphereMesh.new()
+		mesh.radius = 0.22
+		mesh.height = 0.44
+		light_mesh.mesh = mesh
+		light_mesh.position = Vector3(3.35 * side, 0.2, -0.45)
+		light_mesh.material_override = make_navigation_light_material(nav_color, 1.0)
+		light_mesh.set_meta("nav_color", nav_color)
+		visual.add_child(light_mesh)
+		navigation_light_meshes.append(light_mesh)
+
+		var omni := OmniLight3D.new()
+		omni.light_color = nav_color
+		omni.light_energy = 1.6
+		omni.omni_range = 34.0
+		omni.omni_attenuation = 1.8
+		omni.position = light_mesh.position
+		visual.add_child(omni)
+		navigation_lights.append(omni)
+
+	for offset in [Vector3(0.0, 1.05, 2.45), Vector3(0.0, 0.72, -2.1)]:
+		var strobe_mesh := MeshInstance3D.new()
+		strobe_mesh.name = "StrobeLight"
+		var strobe_ball := SphereMesh.new()
+		strobe_ball.radius = 0.24
+		strobe_ball.height = 0.48
+		strobe_mesh.mesh = strobe_ball
+		strobe_mesh.position = offset
+		strobe_mesh.material_override = make_navigation_light_material(Color.WHITE, 1.35)
+		visual.add_child(strobe_mesh)
+		strobe_meshes.append(strobe_mesh)
+
+		var strobe := OmniLight3D.new()
+		strobe.light_color = Color.WHITE
+		strobe.light_energy = 4.6
+		strobe.omni_range = 56.0
+		strobe.omni_attenuation = 1.35
+		strobe.position = offset
+		visual.add_child(strobe)
+		strobe_lights.append(strobe)
+
+
+func update_navigation_lights() -> void:
+	var pulse_time := Time.get_ticks_msec() * 0.001
+	var nav_wave := 0.72 + 0.28 * sin(pulse_time * 0.8)
+	var strobe_phase := fmod(pulse_time * 1.45, 1.0)
+	var strobe_on := strobe_phase < 0.08 or (strobe_phase > 0.18 and strobe_phase < 0.24)
+	for i in range(navigation_light_meshes.size()):
+		var mesh := navigation_light_meshes[i]
+		if mesh == null:
+			continue
+		var nav_color: Color = mesh.get_meta("nav_color", Color.WHITE)
+		var material := mesh.material_override as StandardMaterial3D
+		if material != null:
+			material.emission = nav_color * (1.2 + nav_wave * (1.0 if thruster_shaded_mode else 1.8))
+		if i < navigation_lights.size() and navigation_lights[i] != null:
+			navigation_lights[i].light_energy = 1.2 + nav_wave * 0.9
+	for mesh in strobe_meshes:
+		if mesh == null:
+			continue
+		mesh.visible = strobe_on
+		var material := mesh.material_override as StandardMaterial3D
+		if material != null:
+			material.emission = Color.WHITE * (3.6 if strobe_on else 0.18)
+	for strobe in strobe_lights:
+		if strobe == null:
+			continue
+		strobe.visible = strobe_on
 
 
 func build_thruster_loop_stream(low_frequency: float, high_frequency: float, noise_mix: float, pulse_mix: float) -> AudioStreamWAV:
