@@ -17,9 +17,10 @@ mkdir -p "$CF_DIR"
 cp -R "$EXPORT_DIR/." "$CF_DIR/"
 rm -f "$CF_DIR/.DS_Store"
 find "$CF_DIR" -name "*.import" -delete
-gzip -c "$EXPORT_DIR/index.wasm" > "$CF_DIR/index.wasm"
+rm -f "$CF_DIR/index.wasm"
+gzip -c "$EXPORT_DIR/index.wasm" > "$CF_DIR/index.wasm.gz"
 cat > "$CF_DIR/_headers" <<'EOF'
-/index.wasm
+/index.wasm.gz
   Content-Encoding: gzip
   Content-Type: application/wasm
 EOF
