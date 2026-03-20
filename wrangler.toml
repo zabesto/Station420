@@ -2,4 +2,4 @@ name = "station420"
 compatibility_date = "2026-03-18"
 
 [assets]
-directory = "./build/web"
+directory = "./build/cloudflare"
