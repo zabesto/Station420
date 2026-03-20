@@ -472,6 +472,7 @@ var settings_label_refresh_timer := 0.0
 var cinematic_overlay_nodes: Array[CanvasItem] = []
 var settings_tab_groups: Array[Control] = []
 var settings_tab_buttons: Array[Button] = []
+var settings_tab_page_controls: Array = []
 var utility_buttons: Array[Button] = []
 var runtime_rng := RandomNumberGenerator.new()
 var cached_ship_gravity := Vector3.ZERO
@@ -578,6 +579,12 @@ func _ready() -> void:
 	]
 	settings_tab_groups = [display_group, audio_group, flight_group, render_group]
 	settings_tab_buttons = [display_tab_button, audio_tab_button, flight_tab_button, render_tab_button]
+	settings_tab_page_controls = [
+		[preset_value, preset_prev_button, preset_next_button, render_mode_button, bloom_value, bloom_button],
+		[music_value, music_slider, music_button, sfx_value, sfx_slider, sfx_button],
+		[trail_value, trail_button, guidance_value, guidance_button, invert_y_value, invert_y_button, physics_mode_value, physics_mode_button],
+		[edge_threshold_value, shader_mode_option, edge_threshold_slider, edge_strength_value, edge_strength_slider, edge_glow_value, edge_glow_slider, blur_amount_value, blur_amount_slider, shader_aux_value, shader_aux_slider]
+	]
 	utility_buttons = [fullscreen_button, help_button, inspector_button, shader_button, debug_save_defaults_button]
 	update_responsive_hud_layout(true)
 	update_window_controls()
@@ -898,11 +905,19 @@ func apply_settings_tab_visibility() -> void:
 		var group: Control = settings_tab_groups[i]
 		if group != null:
 			group.visible = i == settings_tab_index
+	for i in range(settings_tab_page_controls.size()):
+		var page_controls = settings_tab_page_controls[i]
+		var page_visible := i == settings_tab_index
+		for control in page_controls:
+			if control is Control:
+				(control as Control).visible = page_visible
 	for i in range(settings_tab_buttons.size()):
 		var button: Button = settings_tab_buttons[i]
 		if button == null:
 			continue
-		button.text = ("[%s]" if i == settings_tab_index else "%s") % get_settings_tab_name(i)
+		button.text = get_settings_tab_name(i)
+		button.disabled = i == settings_tab_index
+	settings_title.text = "Settings"
 
 
 func get_settings_tab_name(index: int) -> String:
@@ -3466,9 +3481,9 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 	var hot_style := make_button_stylebox(Color(0.08, 0.06, 0.06, 0.9), alert_color)
 	for button in [
 		controls_button,
-		controls_close_button,
-		inspector_button,
-		inspector_close_button,
+			controls_close_button,
+			inspector_button,
+			inspector_close_button,
 		inspector_screen_fx_button,
 		inspector_blur_button,
 		inspector_bloom_button,
@@ -3495,17 +3510,19 @@ func apply_button_styles(hud_color: Color, accent_color: Color, alert_color: Col
 		sfx_button,
 		trail_button,
 		guidance_button,
-		invert_y_button,
-		physics_mode_button
-	]:
+			invert_y_button,
+			physics_mode_button
+		]:
 		if button == null:
 			continue
 		button.add_theme_stylebox_override("normal", primary_style)
 		button.add_theme_stylebox_override("hover", make_button_stylebox(Color(0.07, 0.09, 0.13, 0.96), accent_color.lightened(0.1)))
 		button.add_theme_stylebox_override("pressed", make_button_stylebox(Color(0.12, 0.15, 0.2, 0.98), accent_color))
+		button.add_theme_stylebox_override("disabled", make_button_stylebox(Color(0.12, 0.15, 0.2, 0.98), accent_color))
 		button.add_theme_color_override("font_color", accent_color)
 		button.add_theme_color_override("font_hover_color", Color.WHITE)
 		button.add_theme_color_override("font_pressed_color", Color.WHITE)
+		button.add_theme_color_override("font_disabled_color", Color.WHITE)
 		button.add_theme_font_size_override("font_size", 18)
 	for button in [display_tab_button, audio_tab_button, flight_tab_button, render_tab_button]:
 		if button == null:
@@ -3749,7 +3766,7 @@ func toggle_physics_mode() -> void:
 
 func update_settings_label() -> void:
 	var trail_active = player.get("trail_enabled")
-	settings_title.text = "Graphics + Flight"
+	settings_title.text = "Settings"
 	controls_title.text = "Keyboard + Controller"
 	apply_settings_tab_visibility()
 	preset_value.text = "Theme: %s / %s" % [get_preset_name(visual_preset_index), "Shaded" if shaded_mode else "Wireframe"]
@@ -3765,9 +3782,19 @@ func update_settings_label() -> void:
 	edge_glow_value.text = "Detail: %d%%" % int(round(edge_strength_scale * 100.0))
 	blur_amount_value.text = "Wire Intensity: %d%%" % int(round(wire_shader_scale * 100.0))
 	shader_aux_value.text = "Aux Mix: %d%%" % int(round(blur_strength_scale * 100.0))
+	preset_prev_button.text = "Prev"
+	preset_next_button.text = "Next"
+	render_mode_button.text = "Mode"
+	bloom_button.text = "Toggle"
+	music_button.text = "Toggle"
+	sfx_button.text = "Toggle"
+	trail_button.text = "Toggle"
+	guidance_button.text = "Toggle"
+	invert_y_button.text = "Toggle"
+	physics_mode_button.text = "Cycle"
 	settings_hint.text = "Use Controls for keyboard and gamepad bindings. Press H or Back to close."
 	settings_hotkeys.text = "Quick actions: Tab views, V reset, J autopilot, E dock, Esc pause\nRender: \\ mode, B bloom, 1-7 themes, mouse wheel zoom"
-	controls_keyboard_text.text = "Flight\nW A S D  move\nR / F  rise / descend\nQ / E  roll / dock\nShift  boost\nSpace  fire\n\nView\nTab  cycle camera\nV  reset view\n\nSystems\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nH  help/settings\nEsc  pause"
+	controls_keyboard_text.text = "Flight\nArrow keys  steer / pitch\nW A S D  move\nR / F  rise / descend\nQ / Z  roll\nShift  boost\nSpace  fire\n\nView\nTab  cycle camera\nV  reset view\n\nSystems\nE  dock\nJ  autopilot\nT  trail\nG  guidance\nB  bloom\nP  flight mode\nC  hail comms\nH  help/settings\nEsc  pause"
 	controls_controller_text.text = "Flight\nLeft stick  steer / pitch\nRT / LT  thrust / reverse\nA  fire / launch\n\nView\nRight stick  camera look\nY  cycle camera\nR3  reset view\n\nSystems\nX  cycle AP target\nD-pad Right  autopilot\nD-pad Down  trail\nL3  guidance\nB  render mode\nBack  help/settings\nStart  pause"
 	controls_hint.text = "Close with Esc, H, Back, or the Close button."
 	if shader_mode_option.selected != shader_mode_index:
@@ -3853,7 +3880,8 @@ func update_pause_camera(delta: float) -> void:
 	var blend_speed: float = 1.8 if paused else 3.2
 	pause_camera_blend = move_toward(pause_camera_blend, target_blend, delta * blend_speed)
 	if paused:
-		pause_camera_time += delta
+		var pause_time_scale := 0.62 if start_screen_active else 1.0
+		pause_camera_time += delta * pause_time_scale
 	if not paused and pause_camera_blend <= 0.001:
 		pause_camera_time = 0.0
 
@@ -3933,7 +3961,7 @@ func update_boot_screen(delta: float) -> void:
 	if not start_screen_active:
 		return
 	boot_screen_time += delta
-	var progress: float = min(18.0 + boot_screen_time * 32.0, 100.0)
+	var progress: float = min(18.0 + boot_screen_time * 26.0, 100.0)
 	start_progress_bar.value = progress
 	if progress < 34.0:
 		start_status_label.text = "Booting navigation mesh..."
@@ -5268,7 +5296,7 @@ func get_start_spawn_data() -> Dictionary:
 		for _attempt in range(24):
 			var body: Dictionary = planet_bodies[rng.randi_range(0, planet_bodies.size() - 1)]
 			var planet_node: Node3D = body["node"]
-			var orbit_radius: float = float(body["radius"]) + 1400.0
+			var orbit_radius: float = float(body["radius"]) + 2200.0
 			var angle := rng.randf_range(0.0, TAU)
 			var candidate := planet_node.global_position + Vector3(
 				cos(angle) * orbit_radius,
@@ -5299,7 +5327,7 @@ func get_start_spawn_data() -> Dictionary:
 				"forward": (-candidate).normalized()
 			}
 	return {
-		"position": Vector3(0, 240, STAR_DAMAGE_RADIUS + 260.0),
+		"position": Vector3(0, 260, STAR_DAMAGE_RADIUS + 6200.0),
 		"planet_position": Vector3.ZERO,
 		"forward": Vector3(0, 0, -1)
 	}
@@ -5317,7 +5345,7 @@ func apply_start_camera_framing(spawn_data: Dictionary) -> void:
 
 
 func is_position_safe_for_spawn(position: Vector3) -> bool:
-	if position.length() < STAR_DAMAGE_RADIUS + 2200.0:
+	if position.length() < STAR_DAMAGE_RADIUS + 6200.0:
 		return false
 	for body in planet_bodies:
 		var node: Node3D = body["node"]
@@ -6124,7 +6152,7 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 			button.offset_top = margin
 			button.offset_bottom = margin + utility_height
 			utility_right = button.offset_left - utility_gap
-	var settings_width := viewport_size.x - margin * 2.0 if compact else 340.0
+	var settings_width := viewport_size.x - margin * 2.0 if compact else 392.0
 	settings_panel.anchor_left = 0.0 if compact else 1.0
 	settings_panel.anchor_right = 1.0
 	settings_panel.offset_left = margin if compact else -settings_width - 24.0
@@ -6197,8 +6225,8 @@ func update_responsive_hud_layout(force: bool = false) -> void:
 			button.offset_right = left + inspector_button_width
 			button.offset_top = inspector_row_y
 			button.offset_bottom = inspector_row_y + 32.0
-	var controls_width: float = min(viewport_size.x - margin * 2.0, 560.0 if not compact else viewport_size.x - margin * 2.0)
-	var controls_height: float = min(viewport_size.y - margin * 2.0, 520.0 if is_phone_portrait else (440.0 if not compact else viewport_size.y - margin * 2.0))
+	var controls_width: float = min(viewport_size.x - margin * 2.0, 620.0 if not compact else viewport_size.x - margin * 2.0)
+	var controls_height: float = min(viewport_size.y - margin * 2.0, 520.0 if is_phone_portrait else (472.0 if not compact else viewport_size.y - margin * 2.0))
 	controls_panel.offset_left = -controls_width * 0.5
 	controls_panel.offset_right = controls_width * 0.5
 	controls_panel.offset_top = -controls_height * 0.5

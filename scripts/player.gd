@@ -39,6 +39,9 @@ var yaw := 0.0
 var pitch := 0.0
 var roll := 0.0
 var look_input := Vector2.ZERO
+var keyboard_yaw_input := 0.0
+var keyboard_pitch_input := 0.0
+var keyboard_roll_input := 0.0
 var controller_look_state := Vector2.ZERO
 var touch_look_state := Vector2.ZERO
 var keyboard_look_active := false
@@ -139,11 +142,20 @@ func _physics_process(delta: float) -> void:
 		apply_keyboard_look(delta)
 		apply_controller_look(delta)
 		apply_touch_look(delta)
-		yaw += look_input.x
-		pitch = clamp(pitch + look_input.y, -0.95, 0.95)
-		look_input = Vector2.ZERO
+		if keyboard_look_active:
+			var keyboard_basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch) * Basis(Vector3.BACK, roll)
+			keyboard_basis = apply_keyboard_basis_look(keyboard_basis)
+			sync_orientation_from_basis(keyboard_basis)
+			look_input = Vector2.ZERO
+		else:
+			yaw += look_input.x
+			pitch = clamp(pitch + look_input.y, -0.95, 0.95)
+			look_input = Vector2.ZERO
 	else:
 		look_input = Vector2.ZERO
+		keyboard_yaw_input = 0.0
+		keyboard_pitch_input = 0.0
+		keyboard_roll_input = 0.0
 		controller_look_state = controller_look_state.lerp(Vector2.ZERO, min(delta * controller_look_response, 1.0))
 		touch_look_state = touch_look_state.lerp(Vector2.ZERO, min(delta * controller_look_response, 1.0))
 
@@ -179,22 +191,40 @@ func apply_look_input(delta_x: float, delta_y: float) -> void:
 
 
 func apply_keyboard_look(delta: float) -> void:
-	var keyboard_look := Vector2.ZERO
+	keyboard_yaw_input = 0.0
+	keyboard_pitch_input = 0.0
+	keyboard_roll_input = 0.0
 	if Input.is_key_pressed(KEY_LEFT):
-		keyboard_look.x += keyboard_look_speed * delta
+		keyboard_yaw_input += keyboard_look_speed * delta
 	if Input.is_key_pressed(KEY_RIGHT):
-		keyboard_look.x -= keyboard_look_speed * delta
+		keyboard_yaw_input -= keyboard_look_speed * delta
 	if Input.is_key_pressed(KEY_UP):
-		keyboard_look.y += keyboard_look_speed * delta * 0.75
+		keyboard_pitch_input += keyboard_look_speed * delta * 0.75
 	if Input.is_key_pressed(KEY_DOWN):
-		keyboard_look.y -= keyboard_look_speed * delta * 0.75
+		keyboard_pitch_input -= keyboard_look_speed * delta * 0.75
 	if Input.is_key_pressed(KEY_Q):
-		roll += roll_speed * delta
-	if Input.is_key_pressed(KEY_E):
-		roll -= roll_speed * delta
-	roll = wrapf(roll, -PI, PI)
-	keyboard_look_active = keyboard_look.length() > 0.001
-	look_input += keyboard_look
+		keyboard_roll_input += roll_speed * delta
+	if Input.is_key_pressed(KEY_Z):
+		keyboard_roll_input -= roll_speed * delta
+	keyboard_look_active = abs(keyboard_yaw_input) > 0.001 or abs(keyboard_pitch_input) > 0.001 or abs(keyboard_roll_input) > 0.001
+
+
+func apply_keyboard_basis_look(target_basis: Basis) -> Basis:
+	var basis := target_basis.orthonormalized()
+	if abs(keyboard_yaw_input) > 0.001:
+		basis = Basis(Vector3.UP, keyboard_yaw_input) * basis
+	if abs(keyboard_pitch_input) > 0.001:
+		basis = basis.rotated(basis.x.normalized(), keyboard_pitch_input)
+	if abs(keyboard_roll_input) > 0.001:
+		basis = basis.rotated(basis.z.normalized(), keyboard_roll_input)
+	return basis.orthonormalized()
+
+
+func sync_orientation_from_basis(target_basis: Basis) -> void:
+	var euler := target_basis.get_euler(EULER_ORDER_YXZ)
+	pitch = clamp(euler.x, -0.95, 0.95)
+	yaw = euler.y
+	roll = wrapf(euler.z, -PI, PI)
 
 
 func apply_controller_look(delta: float) -> void:
